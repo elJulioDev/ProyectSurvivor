@@ -1,0 +1,31 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribución / Empaquetado
+build/
+dist/
+*.egg-info/
+
+# Variables de entorno
+.env
+
+# Archivos de sistema y del editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+
+# Archivos de configuración local
+*.log
