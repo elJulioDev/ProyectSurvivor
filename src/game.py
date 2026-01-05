@@ -110,8 +110,8 @@ class Game:
             
             hit_enemy = projectile.check_collision(self.enemies)
             if hit_enemy:
-                # Aplicar retroceso
-                hit_enemy.apply_knockback(projectile.angle, force=8)
+                # Aplicar retroceso CON LA POSICIÓN DEL PROYECTIL
+                hit_enemy.apply_knockback(projectile.x, projectile.y, force=10)
                 
                 # Partículas de impacto
                 self.particle_system.create_impact_particles(
@@ -203,9 +203,9 @@ class Game:
         if self.player:
             self.player.render(self.screen)
         
-        # HUD
+        # HUD (actualizado con contador de enemigos)
         if self.hud and self.player:
-            self.hud.render(self.player, self.wave_manager.current_wave, self.score)
+            self.hud.render(self.player, self.wave_manager.current_wave, self.score, len(self.enemies))
         
         # Transición de oleada (sin bloquear)
         if self.wave_manager.is_wave_completed():

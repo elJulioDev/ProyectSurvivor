@@ -1,5 +1,5 @@
 """
-Clase de enemigos con variaciones
+Clase de enemigos con variaciones y retroceso corregido
 """
 import pygame
 import math
@@ -43,7 +43,7 @@ class Enemy:
         # Efectos de retroceso
         self.knockback_x = 0
         self.knockback_y = 0
-        self.knockback_decay = 0.85
+        self.knockback_decay = 0.88
         
         # Efecto de daño visual
         self.damage_flash = 0
@@ -71,6 +71,7 @@ class Enemy:
             dx /= distance
             dy /= distance
             
+            # Aplicar movimiento normal + knockback
             self.x += dx * self.speed + self.knockback_x
             self.y += dy * self.speed + self.knockback_y
         
@@ -78,14 +79,32 @@ class Enemy:
         self.knockback_x *= self.knockback_decay
         self.knockback_y *= self.knockback_decay
         
+        # Si el knockback es muy pequeño, eliminarlo
+        if abs(self.knockback_x) < 0.1:
+            self.knockback_x = 0
+        if abs(self.knockback_y) < 0.1:
+            self.knockback_y = 0
+        
         # Actualizar hitbox
         self.rect.x = self.x - self.size // 2
         self.rect.y = self.y - self.size // 2
     
-    def apply_knockback(self, angle, force=5):
-        """Aplica retroceso al enemigo"""
-        self.knockback_x = -math.cos(angle) * force * (1.0 / self.TYPES[self.enemy_type]['size_mult'])
-        self.knockback_y = -math.sin(angle) * force * (1.0 / self.TYPES[self.enemy_type]['size_mult'])
+    def apply_knockback(self, projectile_x, projectile_y, force=5):
+        """Aplica retroceso al enemigo desde la posición del proyectil"""
+        # Calcular dirección desde el proyectil hacia el enemigo
+        dx = self.x - projectile_x
+        dy = self.y - projectile_y
+        distance = math.sqrt(dx**2 + dy**2)
+        
+        if distance > 0:
+            # Normalizar dirección
+            dx /= distance
+            dy /= distance
+            
+            # Aplicar fuerza ajustada por tamaño (enemigos grandes retroceden menos)
+            size_factor = 1.0 / self.TYPES[self.enemy_type]['size_mult']
+            self.knockback_x = dx * force * size_factor
+            self.knockback_y = dy * force * size_factor
     
     def update(self):
         """Actualiza el estado del enemigo"""
@@ -122,7 +141,7 @@ class Enemy:
             return False
         
         self.health -= damage
-        self.damage_flash = 10  # Frames de flash
+        self.damage_flash = 10
         
         if self.health <= 0:
             self.health = 0
