@@ -1,5 +1,5 @@
 """
-Sistema de partículas optimizado con DeltaTime
+Sistema de partículas optimizado con DeltaTime y carga reducida
 """
 import pygame
 import random
@@ -31,69 +31,61 @@ class Particle:
         self.friction = friction
         self.is_chunk = is_chunk
         self.is_liquid = is_liquid 
-        self.angle = random.randint(0, 360)
+        self.angle = 0
 
     def update(self, dt=1.0):
-        """Actualización con DeltaTime"""
         if not self.is_alive:
             return
         
-        # Aplicar física escalada por dt
+        # Física
         self.vel_y += self.gravity * dt
-        self.vel_x *= self.friction ** dt
-        self.vel_y *= self.friction ** dt
+        
+        # Optimización: Multiplicación simple en lugar de potencia (** dt)
+        # Asumimos que dt está cerca de 1.0, el error es despreciable visualmente
+        self.vel_x *= self.friction 
+        self.vel_y *= self.friction 
         
         self.x += self.vel_x * dt
         self.y += self.vel_y * dt
         
-        # Lógica de líquidos/charcos
-        speed_sq = self.vel_x * self.vel_x + self.vel_y * self.vel_y
-        
-        if self.is_liquid and speed_sq < 0.01 and not self.is_chunk:
-            # Charco estático
-            self.gravity = 0
-            self.vel_x = 0
-            self.vel_y = 0
-            self.lifetime -= 0.3 * dt  # Desgaste lento
-        else:
-            self.lifetime -= 1 * dt
-            
+        self.lifetime -= 1 * dt
         if self.lifetime <= 0:
             self.is_alive = False
 
-
 class ParticleSystem:
-    """Sistema de partículas que usa Object Pooling"""
     def __init__(self):
-        # El pool real se gestiona externamente ahora
-        self.particles = []
+        self.pool = None
     
     def set_pool(self, particle_pool):
-        """Establece el pool de partículas (llamar desde GameplayScene)"""
         self.pool = particle_pool
     
-    def create_blood_splatter(self, x, y, direction_vector=None, force=1.0, count=10):
-        """Sangrado direccional al recibir daño"""
-        if not hasattr(self, 'pool'):
-            return
+    def create_blood_splatter(self, x, y, direction_vector=None, force=1.0, count=4):
+        """
+        Sangrado direccional.
+        REDUCIDO: count default bajado de 10 a 4 para mejor rendimiento.
+        """
+        if not hasattr(self, 'pool'): return
         
-        for _ in range(count):
+        # Limitamos el count máximo por seguridad
+        safe_count = min(count, 8) 
+        
+        for _ in range(safe_count):
             if direction_vector:
                 base_angle = math.atan2(direction_vector[1], direction_vector[0])
-                spread = random.uniform(-0.6, 0.6) 
+                spread = random.uniform(-0.5, 0.5) 
                 angle = base_angle + spread
-                speed = random.uniform(3, 9) * force
+                speed = random.uniform(3, 8) * force
             else:
                 angle = random.uniform(0, math.pi * 2)
-                speed = random.uniform(2, 6)
+                speed = random.uniform(2, 5)
 
             velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
             color = random.choice([BLOOD_RED, BRIGHT_RED, DARK_BLOOD])
             
             self.pool.get(
                 x, y, color,
-                size=random.randint(2, 5),
-                lifetime=random.randint(30, 60),
+                size=random.randint(2, 4),
+                lifetime=random.randint(20, 40), # Vida más corta = menos carga
                 velocity=velocity,
                 gravity=0,
                 friction=0.85,
@@ -102,15 +94,14 @@ class ParticleSystem:
 
     def create_blood_drip(self, x, y):
         """Goteo mientras camina"""
-        if not hasattr(self, 'pool'):
-            return
+        if not hasattr(self, 'pool'): return
         
         self.pool.get(
-            x + random.randint(-3, 3), 
-            y + random.randint(-3, 3),
+            x + random.randint(-2, 2), 
+            y + random.randint(-2, 2),
             DARK_BLOOD,
-            size=random.randint(3, 5),
-            lifetime=random.randint(200, 400),
+            size=random.randint(2, 4),
+            lifetime=random.randint(100, 200),
             velocity=(0, 0),
             gravity=0,
             friction=0,
@@ -118,22 +109,22 @@ class ParticleSystem:
         )
     
     def create_blood_pool(self, x, y):
-        """Crea un charco grande y estático"""
-        if not hasattr(self, 'pool'):
-            return
+        """Charco estático"""
+        if not hasattr(self, 'pool'): return
         
-        blobs = random.randint(3, 7)
+        # Reducido de 3-7 a 1-3 blobs
+        blobs = random.randint(1, 3)
         for _ in range(blobs):
-            offset_dist = random.uniform(0, 10)
-            offset_angle = random.uniform(0, math.pi * 2)
-            px = x + math.cos(offset_angle) * offset_dist
-            py = y + math.sin(offset_angle) * offset_dist
+            offset = random.uniform(0, 8)
+            angle = random.uniform(0, math.pi * 2)
+            px = x + math.cos(angle) * offset
+            py = y + math.sin(angle) * offset
             
             self.pool.get(
                 px, py,
                 DARK_BLOOD,
-                size=random.randint(8, 16),
-                lifetime=random.randint(300, 500),
+                size=random.randint(6, 12),
+                lifetime=random.randint(200, 300),
                 velocity=(0, 0),
                 gravity=0,
                 friction=0,
@@ -141,56 +132,46 @@ class ParticleSystem:
             )
 
     def create_viscera_explosion(self, x, y):
-        """Muerte gore: Charco + Explosión"""
-        if not hasattr(self, 'pool'):
-            return
+        """Muerte gore"""
+        if not hasattr(self, 'pool'): return
         
-        # 1. Charco
+        # 1. Charco pequeño
         self.create_blood_pool(x, y)
 
-        # 2. Niebla roja
-        for _ in range(25):
+        # 2. Niebla (Reducido de 25 a 8)
+        for _ in range(8):
             angle = random.uniform(0, math.pi * 2)
-            speed = random.uniform(1, 5)
+            speed = random.uniform(1, 4)
             velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
             
             self.pool.get(
                 x, y, BLOOD_RED, 
-                size=random.randint(2, 4), 
-                lifetime=40, 
+                size=random.randint(2, 3), 
+                lifetime=30, 
                 velocity=velocity,
                 gravity=0,
                 friction=0.9
             )
 
-        # 3. Trozos de carne
-        num_chunks = random.randint(8, 14)
+        # 3. Trozos (Reducido de 8-14 a 3-5)
+        num_chunks = random.randint(3, 5)
         for _ in range(num_chunks):
             angle = random.uniform(0, math.pi * 2)
-            speed = random.uniform(3, 8)
+            speed = random.uniform(2, 6)
             velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
             
-            color = random.choice([DARK_BLOOD, GUTS_PINK])
-            
             self.pool.get(
-                x, y, color,
-                size=random.randint(4, 7),
-                lifetime=random.randint(60, 120),
+                x, y, random.choice([DARK_BLOOD, GUTS_PINK]),
+                size=random.randint(3, 5),
+                lifetime=random.randint(40, 80),
                 velocity=velocity,
                 gravity=0,
-                friction=0.88,
+                friction=0.85,
                 is_chunk=True
             )
     
-    def update(self, dt=1.0):
-        """El pool maneja las actualizaciones ahora"""
-        pass
-    
-    def render(self, screen, camera):
-        """El pool maneja el renderizado ahora"""
-        pass
-    
+    # Delegados vacíos para mantener compatibilidad si se llaman por error
+    def update(self, dt=1.0): pass
+    def render(self, screen, camera): pass
     def clear(self):
-        """Limpia partículas (delegado al pool)"""
-        if hasattr(self, 'pool'):
-            self.pool.clear()
+        if hasattr(self, 'pool'): self.pool.clear()

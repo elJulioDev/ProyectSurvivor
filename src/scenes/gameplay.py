@@ -27,7 +27,9 @@ class GameplayScene(Scene):
         
         # ========== OPTIMIZACIÓN: OBJECT POOLING ==========
         self.projectile_pool = ProjectilePool(initial_size=500)
-        self.particle_pool = ParticlePool(initial_size=1000)
+        
+        # CORRECCIÓN AQUÍ: Usamos 'capacity' en lugar de 'initial_size' para el Ring Buffer
+        self.particle_pool = ParticlePool(capacity=1000)
         
         # ========== OPTIMIZACIÓN: SPATIAL GRID ==========
         self.spatial_grid = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
@@ -283,11 +285,13 @@ class GameplayScene(Scene):
         fps = self.clock.get_fps()
         dt_ms = self.dt * (1000.0 / self.target_fps)
         
+        active_particles = sum(1 for p in self.particle_pool.pool if p.is_alive)
+        
         debug_texts = [
             f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
             f"Enemigos: {len(self.enemies)} (Renderizados: {enemies_rendered})",
             f"Proyectiles: {len(self.projectile_pool.active)}",
-            f"Partículas: {len(self.particle_pool.active)}",
+            f"Partículas: {active_particles}",
             f"Puntuación: {self.score}",
             "F3: Toggle Debug"
         ]

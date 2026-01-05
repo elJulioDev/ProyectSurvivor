@@ -127,7 +127,7 @@ class LaserWeapon(Weapon):
     Visualmente impactante y daño inmediato.
     """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=45, damage=15) # Daño por tick/disparo
+        super().__init__(owner, cooldown=0, damage=30) # Daño por tick/disparo
         self.max_range = 800
         self.duration = 10   # Duración visual del rayo (frames)
         self.draw_timer = 0
