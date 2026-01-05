@@ -66,39 +66,30 @@ class GameplayScene(Scene):
         if self.shoot_cooldown > 0:
             self.shoot_cooldown -= 1
         
-        if mouse_buttons[0] and self.shoot_cooldown == 0:
-            projectile = self.player.shoot()
-            self.projectiles.append(projectile)
-            self.shoot_cooldown = self.shoot_delay
+        # Actualizar cada arma equipada
+        for weapon in self.player.weapons:
+            # Algunas armas necesitan acceso a proyectiles, otras a particulas
+            if hasattr(weapon, 'render'): # Es un arma física como el Orbital
+                 weapon.update(self.enemies, self.particle_system)
+            else: # Es un arma de disparo como la Varita
+                 weapon.update(self.enemies, self.projectiles)
         
         # Actualizar proyectiles
         for projectile in self.projectiles[:]:
             projectile.update()
             
+            # check_collision ahora devuelve el enemigo golpeado pero no mata 
+            # necesariamente el proyectil (gracias a la lógica de penetración)
             hit_enemy = projectile.check_collision(self.enemies)
+            
             if hit_enemy:
-                # Aplicar retroceso
-                hit_enemy.apply_knockback(projectile.x, projectile.y, force=10)
+                # Efectos visuales y daño
+                hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
+                self.particle_system.create_impact_particles(hit_enemy.x, hit_enemy.y, hit_enemy.color)
                 
-                # Partículas de impacto
-                self.particle_system.create_impact_particles(
-                    hit_enemy.x, hit_enemy.y,
-                    hit_enemy.color,
-                    count=6
-                )
-                self.particle_system.create_blood_splatter(
-                    hit_enemy.x, hit_enemy.y,
-                    count=3
-                )
-                
-                # Aplicar daño
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
-                    self.particle_system.create_death_particles(
-                        hit_enemy.x, hit_enemy.y,
-                        hit_enemy.color,
-                        count=15
-                    )
+                    self.particle_system.create_death_particles(hit_enemy.x, hit_enemy.y, hit_enemy.color)
                     self.enemies.remove(hit_enemy)
             
             if not projectile.is_alive:
@@ -123,6 +114,11 @@ class GameplayScene(Scene):
     
     def render(self):
         self.screen.fill(BLACK)
+
+        # Renderizar armas especiales (como el orbital)
+        for weapon in self.player.weapons:
+             if hasattr(weapon, 'render'):
+                 weapon.render(self.screen)
         
         # Renderizar en orden: partículas → proyectiles → enemigos → jugador → HUD
         self.particle_system.render(self.screen)

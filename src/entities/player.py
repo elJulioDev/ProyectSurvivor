@@ -7,6 +7,7 @@ from settings import (
     PLAYER_SIZE, PLAYER_SPEED, WHITE,
     WINDOW_WIDTH, WINDOW_HEIGHT
 )
+from entities.weapon import WandWeapon, ShotgunWeapon, OrbitalWeapon, LaserWeapon
 
 class Player:
     def __init__(self, x, y):
@@ -31,6 +32,10 @@ class Player:
         # Efecto de daño
         self.damage_flash = 0
         self.invulnerable_frames = 0
+
+        # Armas
+        self.weapons = []
+        self.weapons.append(ShotgunWeapon(self))
         
         # Hitbox (más pequeña que el sprite visual)
         hitbox_size = self.size - 4
