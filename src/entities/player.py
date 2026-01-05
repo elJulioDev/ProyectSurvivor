@@ -39,6 +39,9 @@ class Player:
         # Armas
         self.weapons = []
         self.weapons.append(ShotgunWeapon(self))
+        #self.weapons.append(WandWeapon(self))
+        #self.weapons.append(OrbitalWeapon(self))
+        #self.weapons.append(LaserWeapon(self))
         
         # Hitbox (más pequeña que el sprite visual)
         hitbox_size = self.size - 4

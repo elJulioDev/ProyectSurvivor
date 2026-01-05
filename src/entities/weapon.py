@@ -64,8 +64,6 @@ class ShotgunWeapon(Weapon):
         self.pellets = 5
         
     def activate(self, target_list, projectile_list):
-        # CORRECCIÓN IMPORTANTE:
-        # No recalculamos el ángulo con el mouse aquí porque las coordenadas son distintas.
         # Usamos self.owner.angle, que el Jugador ya calculó correctamente usando la cámara.
         base_angle = self.owner.angle
         
@@ -108,9 +106,19 @@ class OrbitalWeapon(Weapon):
                 if enemy.take_damage(1):
                     points_gained += enemy.points
                     if particle_system:
-                        particle_system.create_death_particles(enemy.x, enemy.y, enemy.color)
-                elif particle_system and random.random() < 0.1:
-                    particle_system.create_impact_particles(enemy.x, enemy.y, (100, 100, 255), 2)
+                        # Muerte: Explosión de vísceras
+                        particle_system.create_viscera_explosion(enemy.x, enemy.y)
+                elif particle_system and random.random() < 0.2:
+                    # Daño: Sangrado direccional (hacia afuera del jugador)
+                    angle_to_enemy = math.atan2(enemy.y - self.owner.y, enemy.x - self.owner.x)
+                    dir_x = math.cos(angle_to_enemy)
+                    dir_y = math.sin(angle_to_enemy)
+                    
+                    particle_system.create_blood_splatter(
+                        enemy.x, enemy.y, 
+                        direction_vector=(dir_x, dir_y),
+                        count=4
+                    )
                     
         return points_gained
 
@@ -152,17 +160,27 @@ class LaserWeapon(Weapon):
                     if enemy.take_damage(self.damage):
                         points_gained += enemy.points
                         if particle_system:
-                             particle_system.create_death_particles(enemy.x, enemy.y, enemy.color)
+                             # Muerte: Vísceras
+                             particle_system.create_viscera_explosion(enemy.x, enemy.y)
+                    else:
+                        # DAÑO LÁSER: Salpicadura pequeña en el punto de impacto
+                        # Usamos la dirección del láser para el chorro de sangre
+                        dir_x = math.cos(self.owner.angle)
+                        dir_y = math.sin(self.owner.angle)
+                        if particle_system:
+                            particle_system.create_blood_splatter(
+                                clip[0][0], clip[0][1], 
+                                direction_vector=(dir_x, dir_y),
+                                count=3
+                            )
                     
                     self.enemy_hit_timers[enemy_id] = self.hit_interval
-                    if particle_system:
-                        particle_system.create_impact_particles(clip[0][0], clip[0][1], (200, 255, 255), count=3)
                 else:
                     self.enemy_hit_timers[enemy_id] -= 1
         
         return points_gained
 
-    def render(self, screen, camera): # AÑADIDO argumento camera
+    def render(self, screen, camera):
         # Calculamos inicio y fin en coordenadas de MUNDO
         world_start_x = self.owner.x
         world_start_y = self.owner.y

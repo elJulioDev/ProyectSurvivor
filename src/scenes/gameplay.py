@@ -1,7 +1,7 @@
 """
 Escena principal del juego (gameplay)
 """
-import pygame
+import pygame, math
 from scenes.scene import Scene
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, DARK_GRAY, BLACK
 from entities.player import Player
@@ -92,11 +92,27 @@ class GameplayScene(Scene):
             hit_enemy = projectile.check_collision(self.enemies)
             if hit_enemy:
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
-                self.particle_system.create_impact_particles(hit_enemy.x, hit_enemy.y, hit_enemy.color)
+                
+                # --- CALCULAR DIRECCIÓN DEL IMPACTO ---
+                # Usamos la velocidad del proyectil normalizada
+                p_speed = math.hypot(projectile.vel_x, projectile.vel_y)
+                if p_speed > 0:
+                    dir_x = projectile.vel_x / p_speed
+                    dir_y = projectile.vel_y / p_speed
+                    direction = (dir_x, dir_y)
+                else:
+                    direction = None
+
+                # Crear salpicadura direccional (chorro hacia atrás)
+                self.particle_system.create_blood_splatter(
+                    hit_enemy.x, hit_enemy.y, 
+                    direction_vector=direction, 
+                    force=1.5
+                )
                 
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
-                    self.particle_system.create_death_particles(hit_enemy.x, hit_enemy.y, hit_enemy.color)
+                    self.particle_system.create_viscera_explosion(hit_enemy.x, hit_enemy.y)
                     if hit_enemy in self.enemies:
                         self.enemies.remove(hit_enemy)
             
@@ -111,7 +127,8 @@ class GameplayScene(Scene):
         # Actualizar enemigos
         for enemy in self.enemies[:]:
             enemy.move_towards_player(self.player.get_position())
-            enemy.update()
+            # PASAR EL SISTEMA DE PARTÍCULAS
+            enemy.update(self.particle_system) 
             enemy.attack(self.player)
             if not enemy.is_alive: self.enemies.remove(enemy)
             

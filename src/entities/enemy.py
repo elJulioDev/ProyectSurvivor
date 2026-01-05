@@ -33,6 +33,10 @@ class Enemy:
         self.health = self.max_health
         self.points = type_data['points']
         
+        # Sistema de Sangrado
+        self.bleed_timer = 0      # Cuantos frames quedan de sangrado
+        self.bleed_intensity = 0  # Frecuencia del goteo
+
         # Estado
         self.is_alive = True
         
@@ -84,10 +88,18 @@ class Enemy:
             self.knockback_x = dx * force * size_factor
             self.knockback_y = dy * force * size_factor
     
-    def update(self):
+    def update(self, particle_system=None):
         if not self.is_alive: return
         if self.attack_cooldown > 0: self.attack_cooldown -= 1
         if self.damage_flash > 0: self.damage_flash -= 1
+        
+        # LÓGICA DE SANGRADO ACTIVO
+        if self.bleed_timer > 0:
+            self.bleed_timer -= 1
+            # Gotear sangre mientras camina
+            # Si intensidad es alta, gotea cada frame, si no, aleatorio
+            if particle_system and random.random() < 0.3: 
+                particle_system.create_blood_drip(self.x, self.y)
     
     def can_attack(self): return self.attack_cooldown == 0
     
@@ -103,6 +115,10 @@ class Enemy:
         if not self.is_alive: return False
         self.health -= damage
         self.damage_flash = 10
+        
+        # ACTIVAR SANGRADO
+        self.bleed_timer = 120  # Sangrar por 2 segundos (60fps * 2)
+        
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
