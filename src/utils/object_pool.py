@@ -1,14 +1,16 @@
-"""
-Sistema de Object Pooling optimizado con Ring Buffer
-"""
 import pygame
 import math
 from entities.projectile import Projectile
 from entities.particle import Particle
 from settings import WINDOW_HEIGHT, WINDOW_WIDTH
 
+# Colores para el cache
+BLOOD_RED = (160, 0, 0)
+DARK_BLOOD = (80, 0, 0)
+GUTS_PINK = (180, 90, 100)
+BRIGHT_RED = (200, 20, 20)
+
 class ProjectilePool:
-    """Pool de proyectiles (Mantiene lógica original funcional)"""
     def __init__(self, initial_size=500):
         self.pool = []
         self.active = []
@@ -58,62 +60,61 @@ class ProjectilePool:
         for p in self.active[:]:
             self.return_to_pool(p)
 
+
 class ParticlePool:
     """
-    Pool de partículas optimizado con RING BUFFER (Memoria Circular).
-    Evita allocs/deallocs y pone un límite duro a la cantidad de partículas.
+    Pool de partículas ULTRA OPTIMIZADO
+    Adaptado para soportar la nueva paleta de colores Gore
     """
-    def __init__(self, capacity=1500): # Límite fijo de 1500 partículas
+    def __init__(self, capacity=800):
         self.capacity = capacity
-        # Pre-creamos TODAS las partículas. No usaremos append/pop nunca más.
         self.pool = [Particle(0, 0, (0,0,0), 0, 0, (0,0)) for _ in range(capacity)]
-        for p in self.pool: p.is_alive = False
+        for p in self.pool: 
+            p.is_alive = False
         
-        # Puntero circular
         self.next_index = 0
-        
-        # CACHE DE SUPERFICIES (Igual que antes)
         self.cached_surfaces = {}
         self._generate_surface_cache()
     
     def _generate_surface_cache(self):
-        colors = [
-            (160, 0, 0), (80, 0, 0), (180, 90, 100), (200, 20, 20)
-        ]
-        sizes = [2, 3, 4, 5, 6, 8, 10, 12, 16]
-        alphas = [50, 100, 150, 200, 255]
+        """Generamos caché para los 4 colores gore"""
+        colors = [BLOOD_RED, DARK_BLOOD, GUTS_PINK, BRIGHT_RED]
+        sizes = [2, 3, 4, 6, 8, 12, 16] # Añadido 16 para charcos grandes
+        alphas = [100, 180, 255]
         
         for color in colors:
             for size in sizes:
                 for alpha in alphas:
+                    # Circular (gotas)
                     key = ('circle', color, size, alpha)
                     surf = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                     pygame.draw.circle(surf, (*color, alpha), (size, size), size)
                     self.cached_surfaces[key] = surf
                     
+                    # Chunk (trozos de carne)
                     key_chunk = ('chunk', color, size, alpha)
                     surf_chunk = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                     pygame.draw.rect(surf_chunk, (*color, alpha), (0, 0, size*2, size*2))
                     self.cached_surfaces[key_chunk] = surf_chunk
     
     def get_cached_surface(self, shape, color, size, alpha):
-        color_key = min([(160,0,0), (80,0,0), (180,90,100), (200,20,20)], 
-                        key=lambda c: sum((a-b)**2 for a,b in zip(c, color)))
-        size_key = min([2, 3, 4, 5, 6, 8, 10, 12, 16], key=lambda s: abs(s - size))
-        alpha_key = min([50, 100, 150, 200, 255], key=lambda a: abs(a - alpha))
+        """Busca la superficie pre-renderizada más cercana"""
+        # Mapeo aproximado de color para usar el caché
+        color_key = DARK_BLOOD # Default
+        if color == GUTS_PINK: color_key = GUTS_PINK
+        elif color == BRIGHT_RED: color_key = BRIGHT_RED
+        elif color[0] > 140: color_key = BLOOD_RED
+        
+        size_key = min([2, 3, 4, 6, 8, 12, 16], key=lambda s: abs(s - size))
+        alpha_key = min([100, 180, 255], key=lambda a: abs(a - alpha))
+        
         return self.cached_surfaces.get((shape, color_key, size_key, alpha_key))
     
     def get(self, x, y, color, size, lifetime, velocity, gravity=0, friction=0.9, 
             is_chunk=False, is_liquid=True):
-        """Obtiene la siguiente partícula del buffer circular, sobrescribiendo si es necesario"""
-        
-        # Tomamos la partícula en el índice actual
         p = self.pool[self.next_index]
-        
-        # Avanzamos el índice (si llegamos al final, volvemos al principio)
         self.next_index = (self.next_index + 1) % self.capacity
         
-        # Reinicializamos la partícula (reciclaje forzoso)
         p.x = x
         p.y = y
         p.color = color
@@ -127,42 +128,47 @@ class ParticlePool:
         p.friction = friction
         p.is_chunk = is_chunk
         p.is_liquid = is_liquid
+        p.angle = 0 # Reset angle
         
         return p
 
     def update_all(self, dt):
-        """Actualiza solo las vivas. Iterar una lista fija es muy rápido en Python."""
         for p in self.pool:
             if p.is_alive:
                 p.update(dt)
     
     def render_all(self, screen, camera):
-        """Renderizado optimizado con Batch Blitting y Culling"""
         blit_sequence = []
         cam_x = camera.offset_x
         cam_y = camera.offset_y
-        margin = 50 
+        
+        margin = 50
+        min_x = -margin
+        max_x = WINDOW_WIDTH + margin
+        min_y = -margin
+        max_y = WINDOW_HEIGHT + margin
         
         for p in self.pool:
             if not p.is_alive:
                 continue
             
-            # 1. Culling
             screen_x = p.x + cam_x
             screen_y = p.y + cam_y
             
-            if not (-margin < screen_x < WINDOW_WIDTH + margin and 
-                    -margin < screen_y < WINDOW_HEIGHT + margin):
+            # Culling
+            if not (min_x < screen_x < max_x and min_y < screen_y < max_y):
                 continue
 
-            # 2. Visual
             life_ratio = p.lifetime / p.max_lifetime
             if life_ratio <= 0: continue
             
             alpha = int(255 * life_ratio)
-            if alpha < 5: continue
+            if alpha < 10: continue
 
-            if p.is_liquid and not p.is_chunk and abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1:
+            # Lógica visual mejorada: Los líquidos estáticos (charcos) no se encogen
+            is_static_liquid = (p.is_liquid and not p.is_chunk and abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1)
+            
+            if is_static_liquid:
                 current_size = p.size
             else:
                 current_size = max(1, int(p.original_size * life_ratio))
@@ -171,11 +177,18 @@ class ParticlePool:
             surf = self.get_cached_surface(shape, p.color, current_size, alpha)
             
             if surf:
+                # Rotar chunks si es necesario (solo visual, no caché de rotación para ahorrar memoria)
+                if p.is_chunk:
+                    # Nota: Rotar superficies en tiempo real es costoso, 
+                    # para optimizar solo rotamos si hay pocos enemigos (Calidad ALTA)
+                    # O simplemente usamos el cuadrado alineado que ya se ve bien como "trozo"
+                    pass 
+
                 dest_x = int(screen_x - surf.get_width() // 2)
                 dest_y = int(screen_y - surf.get_height() // 2)
                 blit_sequence.append((surf, (dest_x, dest_y)))
             else:
-                pygame.draw.circle(screen, (*p.color, alpha), (int(screen_x), int(screen_y)), current_size)
+                pygame.draw.circle(screen, p.color, (int(screen_x), int(screen_y)), current_size)
 
         if blit_sequence:
             screen.blits(blit_sequence)

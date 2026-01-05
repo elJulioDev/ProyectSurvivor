@@ -1,5 +1,5 @@
 """
-Jugador optimizado con DeltaTime
+Jugador optimizado con DeltaTime + Cambio de Armas + Curación
 """
 import pygame
 import math
@@ -31,8 +31,15 @@ class Player:
         self.damage_flash = 0
         self.invulnerable_frames = 0
 
-        self.weapons = []
-        self.weapons.append(AssaultRifleWeapon(self))
+        # --- SISTEMA DE ARMAS ---
+        # Cargamos todas las armas disponibles en el inventario
+        self.weapons = [
+            PistolWeapon(self),        # Tecla 1
+            ShotgunWeapon(self),       # Tecla 2
+            AssaultRifleWeapon(self),  # Tecla 3
+            LaserWeapon(self)          # Tecla 4
+        ]
+        self.current_weapon_index = 0 # Empezamos con la pistola
         
         hitbox_size = self.size - 4
         self.rect = pygame.Rect(
@@ -59,6 +66,28 @@ class Player:
         if event.type == pygame.KEYDOWN:
             current_time = pygame.time.get_ticks()
             
+            # --- CAMBIO DE ARMAS ---
+            if event.key == pygame.K_1:
+                self.current_weapon_index = 0
+                print("Arma: Pistola")
+            elif event.key == pygame.K_2:
+                self.current_weapon_index = 1
+                print("Arma: Escopeta")
+            elif event.key == pygame.K_3:
+                self.current_weapon_index = 2
+                print("Arma: Rifle de Asalto")
+            elif event.key == pygame.K_4:
+                self.current_weapon_index = 3
+                print("Arma: Láser")
+            
+            # --- CURACIÓN ---
+            elif event.key == pygame.K_h:
+                self.heal(10)
+                # Efecto visual simple (flash verde) al curarse
+                self.damage_flash = 5 # Usamos el flash existente pero breve
+                # Nota: Podrías cambiar el color del flash en render si self.health sube
+            
+            # --- DASH ---
             if (event.key in [pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d, 
                               pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT]):
                 
@@ -77,7 +106,6 @@ class Player:
         dash_dx = 0
         dash_dy = 0
         
-        # Calcular velocidad al cuadrado (más rápido)
         speed_sq = self.vel_x * self.vel_x + self.vel_y * self.vel_y
         
         if speed_sq > 0.01:
@@ -94,7 +122,6 @@ class Player:
         self.dash_vector = (dash_dx, dash_dy)
 
     def handle_input(self, keys, dt=1.0):
-        """Input con DeltaTime"""
         if self.dash_active:
             return
 
@@ -106,21 +133,17 @@ class Player:
         if keys[pygame.K_a] or keys[pygame.K_LEFT]: input_x -= 1
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]: input_x += 1
         
-        # Normalizar diagonal
         if input_x != 0 and input_y != 0:
             input_x *= 0.7071
             input_y *= 0.7071
         
-        # Aceleración escalada por dt
         self.vel_x += input_x * self.accel * dt
         self.vel_y += input_y * self.accel * dt
         
-        # Fricción exponencial con dt
         friction_factor = self.friction ** dt
         self.vel_x *= friction_factor
         self.vel_y *= friction_factor
         
-        # Limitar velocidad con distancia al cuadrado
         speed_sq = self.vel_x * self.vel_x + self.vel_y * self.vel_y
         max_speed_sq = self.max_speed * self.max_speed
         
@@ -141,7 +164,6 @@ class Player:
         self.angle = math.atan2(dy, dx)
     
     def update(self, dt=1.0):
-        """Actualización con DeltaTime"""
         if not self.is_alive:
             return
         
@@ -162,20 +184,11 @@ class Player:
             self.x += self.vel_x * dt
             self.y += self.vel_y * dt
         
-        # Límites del mundo
-        if self.x < self.size:
-            self.x = self.size
-            self.vel_x = 0
-        elif self.x > WORLD_WIDTH - self.size:
-            self.x = WORLD_WIDTH - self.size
-            self.vel_x = 0
+        if self.x < self.size: self.x = self.size; self.vel_x = 0
+        elif self.x > WORLD_WIDTH - self.size: self.x = WORLD_WIDTH - self.size; self.vel_x = 0
             
-        if self.y < self.size:
-            self.y = self.size
-            self.vel_y = 0
-        elif self.y > WORLD_HEIGHT - self.size:
-            self.y = WORLD_HEIGHT - self.size
-            self.vel_y = 0
+        if self.y < self.size: self.y = self.size; self.vel_y = 0
+        elif self.y > WORLD_HEIGHT - self.size: self.y = WORLD_HEIGHT - self.size; self.vel_y = 0
         
         hitbox_size = self.size - 4
         self.rect.x = self.x - hitbox_size // 2
@@ -195,15 +208,19 @@ class Player:
             self.is_alive = False
     
     def heal(self, amount):
+        old_health = self.health
         self.health = min(self.max_health, self.health + amount)
+        if self.health > old_health:
+            print(f"Curado: +{amount} HP (Total: {self.health})")
 
     def attack(self):
-        """Intenta disparar todas las armas equipadas"""
+        """Dispara SOLAMENTE el arma seleccionada"""
         if not self.is_alive or self.dash_active:
             return
 
-        for weapon in self.weapons:
-            weapon.shoot() # El arma gestiona su propio cooldown
+        # Accedemos al arma actual usando el índice
+        current_weapon = self.weapons[self.current_weapon_index]
+        current_weapon.shoot()
 
     def render(self, screen, camera):
         if not self.is_alive:
@@ -226,15 +243,15 @@ class Player:
         render_color = self.color
         if self.damage_flash > 0:
             flash = int(255 * (self.damage_flash / 15))
+            # Rojo si es daño, Verde si nos estamos curando (opcional, aquí sigue siendo rojo por simpleza)
             render_color = (255, max(0, 255 - flash), max(0, 255 - flash))
         
         pygame.draw.rect(screen, render_color, (screen_x - self.size//2, screen_y - self.size//2, self.size, self.size))
+        
+        # Línea de dirección
         end_x = screen_x + math.cos(self.angle) * (self.size * 1.2)
         end_y = screen_y + math.sin(self.angle) * (self.size * 1.2)
         pygame.draw.line(screen, render_color, (screen_x, screen_y), (end_x, end_y), 3)
     
     def get_position(self):
         return (self.x, self.y)
-    
-    def get_direction(self):
-        return (math.cos(self.angle), math.sin(self.angle))

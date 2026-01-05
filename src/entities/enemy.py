@@ -1,5 +1,5 @@
 """
-Enemigos optimizados: distancia al cuadrado + DeltaTime
+Enemigos optimizados con SANGRADO REDUCIDO
 """
 import pygame
 import math
@@ -31,7 +31,7 @@ class Enemy:
         self.health = self.max_health
         self.points = type_data['points']
 
-        self.hitbox_padding = 10 # El enemigo es 10px más gordo invisiblemente
+        self.hitbox_padding = 10
         hitbox_total = self.size + self.hitbox_padding
         
         self.bleed_timer = 0
@@ -54,32 +54,29 @@ class Enemy:
             hitbox_total
         )
         
-        # Cache para optimización de distancia
         self._last_dist_sq = 0
+        
+        # --- NUEVO: Control de sangrado ---
+        self.bleed_drip_cooldown = 0  # Evita spam de goteos
     
     def move_towards_player(self, player_pos, dt=1.0):
-        """Movimiento con DeltaTime"""
         if not self.is_alive:
             return
         
         dx = player_pos[0] - self.x
         dy = player_pos[1] - self.y
         
-        # OPTIMIZACIÓN: Distancia al cuadrado (evita sqrt)
         dist_sq = dx*dx + dy*dy
         self._last_dist_sq = dist_sq
         
-        if dist_sq > 1:  # Evitar división por cero
-            # Normalización manual sin sqrt
+        if dist_sq > 1:
             inv_dist = 1.0 / math.sqrt(dist_sq)
             dx *= inv_dist
             dy *= inv_dist
             
-            # Movimiento escalado por dt
             self.x += (dx * self.speed + self.knockback_x) * dt
             self.y += (dy * self.speed + self.knockback_y) * dt
         
-        # Knockback decay escalado por dt
         decay_factor = self.knockback_decay ** dt
         self.knockback_x *= decay_factor
         self.knockback_y *= decay_factor
@@ -92,7 +89,6 @@ class Enemy:
         self.rect.y = int(self.y - hitbox_total // 2)
     
     def get_distance_squared_to(self, x, y):
-        """Retorna distancia al cuadrado (más rápido que distancia real)"""
         dx = self.x - x
         dy = self.y - y
         return dx*dx + dy*dy
@@ -111,7 +107,9 @@ class Enemy:
             self.knockback_y = dy * force * size_factor
     
     def update(self, particle_system=None, dt=1.0):
-        """Actualización con DeltaTime"""
+        """
+        Actualización con sangrado DRÁSTICAMENTE REDUCIDO
+        """
         if not self.is_alive:
             return
         
@@ -120,11 +118,19 @@ class Enemy:
         if self.damage_flash > 0:
             self.damage_flash -= 1 * dt
         
-        # Sangrado
+        # --- SANGRADO DINÁMICO ---
         if self.bleed_timer > 0:
             self.bleed_timer -= 1 * dt
-            if particle_system and random.random() < 0.3 * dt:
-                particle_system.create_blood_drip(self.x, self.y)
+            
+            if self.bleed_drip_cooldown > 0:
+                self.bleed_drip_cooldown -= 1 * dt
+            
+            # GOTEO: Solo en calidad ALTA
+            if particle_system and particle_system.quality >= 2:
+                # Probabilidad 20% por frame si el cooldown permite
+                if self.bleed_drip_cooldown <= 0 and random.random() < 0.2: 
+                    particle_system.create_blood_drip(self.x, self.y)
+                    self.bleed_drip_cooldown = 15 # Gotea frecuente (cada ~0.25s)
     
     def can_attack(self):
         return self.attack_cooldown <= 0
@@ -143,7 +149,9 @@ class Enemy:
             return False
         self.health -= damage
         self.damage_flash = 10
-        self.bleed_timer = 120
+        
+        # Sangrado activado pero MÁS CORTO
+        self.bleed_timer = 60  # Reducido de 120 a 60
         
         if self.health <= 0:
             self.health = 0

@@ -1,11 +1,5 @@
 """
-Escena de Gameplay COMPLETAMENTE OPTIMIZADA
-- DeltaTime real (movimiento independiente de FPS)
-- Object Pooling (proyectiles + partículas)
-- Spatial Grid (colisiones O(1))
-- Logic Culling (actualizar solo lo visible)
-- Surface Caching (partículas pre-renderizadas)
-- SISTEMA DE DISPARO MANUAL (Top-Down Shooter)
+Escena de Gameplay con CONTROL DE PARTÍCULAS AGRESIVO
 """
 import pygame
 import math
@@ -14,7 +8,7 @@ from scenes.scene import Scene
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
 from entities.player import Player
 from entities.particle import ParticleSystem
-from entities.weapon import LaserWeapon # Import necesario para lógica específica
+from entities.weapon import LaserWeapon
 from ui.hud import HUD
 from utils.wave_manager import WaveManager
 from utils.camera import Camera
@@ -25,47 +19,39 @@ class GameplayScene(Scene):
     def __init__(self, game):
         super().__init__(game)
         
-        # ========== OPTIMIZACIÓN: OBJECT POOLING ==========
+        # ========== POOLS OPTIMIZADOS ==========
         self.projectile_pool = ProjectilePool(initial_size=500)
+        self.particle_pool = ParticlePool(capacity=800)  # Reducido a 800
         
-        # CORRECCIÓN AQUÍ: Usamos 'capacity' en lugar de 'initial_size' para el Ring Buffer
-        self.particle_pool = ParticlePool(capacity=1000)
-        
-        # ========== OPTIMIZACIÓN: SPATIAL GRID ==========
         self.spatial_grid = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         
-        # Entidades
         self.player = None
         self.enemies = []
         self.particle_system = ParticleSystem()
         
-        # Sistemas
         self.hud = HUD(self.screen)
         self.wave_manager = WaveManager()
         self.camera = Camera(WORLD_WIDTH, WORLD_HEIGHT)
         
-        # Estadísticas
         self.score = 0
         
-        # ========== DELTATIME ==========
         self.clock = pygame.time.Clock()
         self.dt = 1.0
         self.target_fps = 60
         
-        # Métricas de rendimiento
         self.frame_counter = 0
-        self.show_debug = False  # Cambiar a True para ver FPS
+        self.show_debug = False
+        
+        # --- NUEVO: Contador de impactos para limitar sangre ---
+        self.hit_particle_cooldown = 0
     
     def on_enter(self):
-        """Inicializa el gameplay y conecta los pools"""
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         self.enemies = []
         
-        # ========== CONECTAR POOLS A LAS ARMAS ==========
         for weapon in self.player.weapons:
             weapon.set_projectile_pool(self.projectile_pool)
         
-        # ========== CONECTAR POOL AL SISTEMA DE PARTÍCULAS ==========
         self.particle_system.set_pool(self.particle_pool)
         
         self.projectile_pool.clear()
@@ -73,6 +59,7 @@ class GameplayScene(Scene):
         self.wave_manager.start_wave()
         self.score = 0
         self.dt = 1.0
+        self.hit_particle_cooldown = 0
     
     def handle_events(self, event):
         if self.player:
@@ -86,7 +73,6 @@ class GameplayScene(Scene):
                 self.show_debug = not self.show_debug
     
     def update(self):
-        # ========== CALCULAR DELTATIME ==========
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
         self.dt = min(raw_dt, 3.0)
         
@@ -95,75 +81,91 @@ class GameplayScene(Scene):
             self.next_scene = GameOverScene(self.game, self.score, self.wave_manager.current_wave)
             return
         
+        # ========== CONTROL DE CALIDAD DINÁMICA ==========
+        enemy_count = len(self.enemies)
+
+        if enemy_count < 50:
+            # Calidad ALTA: Todo activado, goteo, explosiones grandes
+            self.particle_system.set_quality(2)
+        elif enemy_count < 150:
+            # Calidad MEDIA: Sin goteo, explosiones normales
+            self.particle_system.set_quality(1)
+        else:
+            # Calidad BAJA: Mínimo indispensable para feedback visual
+            self.particle_system.set_quality(0)
+        
         keys = pygame.key.get_pressed()
         mouse_pos = pygame.mouse.get_pos()
-        mouse_pressed = pygame.mouse.get_pressed() # Detectar clics del mouse
+        mouse_pressed = pygame.mouse.get_pressed()
         
-        # ========== ACTUALIZAR JUGADOR ==========
         self.player.handle_input(keys, self.dt)
         self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
         self.player.update(self.dt)
         
-        # ========== DISPARO MANUAL (CLIC IZQUIERDO) ==========
-        if mouse_pressed[0]: # [0] es clic izquierdo
+        if mouse_pressed[0]:
             self.player.attack()
 
-        # ========== ACTUALIZAR CÁMARA ==========
         self.camera.update(self.player, mouse_pos)
         
-        # ========== REPOBLAR SPATIAL GRID (Cada frame) ==========
         self.spatial_grid.clear()
         for enemy in self.enemies:
             if enemy.is_alive:
                 self.spatial_grid.insert(enemy)
         
-        # ========== ACTUALIZAR ARMAS Y LÓGICA DE DAÑO ==========
+        # --- Actualizar cooldown de partículas ---
+        if self.hit_particle_cooldown > 0:
+            self.hit_particle_cooldown -= 1 * self.dt
+        
         for weapon in self.player.weapons:
-            # Actualizar Cooldowns (y rotación orbital)
             weapon.update(dt=self.dt)
 
-            # CASO ESPECIAL: Láser (Hitscan instantáneo)
             if isinstance(weapon, LaserWeapon):
-                # Si el láser acaba de dispararse (draw_timer alto)
                 if weapon.draw_timer >= weapon.duration - 1:
                     beam = weapon.get_beam_info()
                     if beam:
                         start, end = beam
-                        # Verificar colisión con todos los enemigos (Hitscan)
-                        # Se podría optimizar con raycast en grid, pero iterar es rápido para <500 enemigos
                         for enemy in self.enemies[:]:
                             if enemy.rect.clipline(start, end):
-                                self.particle_system.create_blood_splatter(enemy.x, enemy.y, count=5)
+                                # Láser NO genera partículas por impacto (demasiadas)
+                                # Solo flash visual del enemigo
                                 if enemy.take_damage(weapon.damage):
                                     self.score += enemy.points
                                     self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
-                                    if enemy in self.enemies: self.enemies.remove(enemy)
-
+                                    if enemy in self.enemies: 
+                                        self.enemies.remove(enemy)
         
-        # ========== ACTUALIZAR PROYECTILES (POOL) ==========
-        # Wand y Shotgun usan proyectiles físicos
+        # ========== PROYECTILES CON CONTROL DE PARTÍCULAS ==========
         for projectile in self.projectile_pool.active[:]:
             projectile.update(self.dt)
             
-            # Colisiones con Grid Espacial
             hit_enemy = projectile.check_collision_grid(self.spatial_grid)
             
             if hit_enemy:
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 
-                # Dirección del impacto para la sangre
-                p_speed_sq = projectile.vel_x * projectile.vel_x + projectile.vel_y * projectile.vel_y
-                direction = None
-                if p_speed_sq > 0.01:
-                    inv_speed = 1.0 / math.sqrt(p_speed_sq)
-                    direction = (projectile.vel_x * inv_speed, projectile.vel_y * inv_speed)
+                # --- NUEVO: LIMITAR PARTÍCULAS DE IMPACTO ---
+                # Solo genera sangre si el cooldown global terminó
+                if self.hit_particle_cooldown <= 0:
+                    p_speed_sq = projectile.vel_x * projectile.vel_x + projectile.vel_y * projectile.vel_y
+                    direction = None
+                    if p_speed_sq > 0.01:
+                        inv_speed = 1.0 / math.sqrt(p_speed_sq)
+                        direction = (projectile.vel_x * inv_speed, projectile.vel_y * inv_speed)
 
-                self.particle_system.create_blood_splatter(
-                    hit_enemy.x, hit_enemy.y, 
-                    direction_vector=direction, 
-                    force=1.5
-                )
-                
+                    # Llamamos con un count base, el sistema lo multiplicará si la calidad es alta
+                    self.particle_system.create_blood_splatter(
+                        hit_enemy.x, hit_enemy.y, 
+                        direction_vector=direction, 
+                        force=1.2,
+                        count=4 # Base count (en High se multiplicará x3 = 12 partículas)
+                    )
+                    
+                    # Ajustar cooldown global según congestión
+                    if self.particle_system.quality == 2:
+                        self.hit_particle_cooldown = 2 # Muy frecuente
+                    else:
+                        self.hit_particle_cooldown = 5 # Menos frecuente para ahorrar CPU
+
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
                     self.particle_system.create_viscera_explosion(hit_enemy.x, hit_enemy.y)
@@ -173,12 +175,10 @@ class GameplayScene(Scene):
             if not projectile.is_alive:
                 self.projectile_pool.return_to_pool(projectile)
         
-        # ========== SISTEMA DE OLEADAS ==========
         new_enemy = self.wave_manager.update(self.enemies)
         if new_enemy:
             self.enemies.append(new_enemy)
         
-        # ========== ACTUALIZAR ENEMIGOS (CON LOGIC CULLING) ==========
         viewport_margin = 200
         
         for enemy in self.enemies[:]:
@@ -195,50 +195,39 @@ class GameplayScene(Scene):
             if not enemy.is_alive:
                 self.enemies.remove(enemy)
         
-        # ========== ACTUALIZAR PARTÍCULAS (POOL) ==========
         self.particle_pool.update_all(self.dt)
         
         self.frame_counter += 1
     
     def render(self):
         self.screen.fill(BLACK)
-
         self._render_grid()
-
-        # ========== RENDERIZADO OPTIMIZADO (Con Culling) ==========
         
-        # 1. Armas Físicas y Láser
         for weapon in self.player.weapons:
             if hasattr(weapon, 'render'):
                 weapon.render(self.screen, self.camera)
         
-        # 2. Partículas
         self.particle_pool.render_all(self.screen, self.camera)
         
-        # 3. Proyectiles
         for projectile in self.projectile_pool.active:
             if self.camera.is_on_screen(projectile.rect):
                 projectile.render(self.screen, self.camera)
         
-        # 4. Enemigos
         enemies_rendered = 0
         for enemy in self.enemies:
             if self.camera.is_on_screen(enemy.rect):
                 enemy.render(self.screen, self.camera)
                 enemies_rendered += 1
         
-        # 5. Jugador
         if self.player:
             self.player.render(self.screen, self.camera)
         
-        # HUD
         if self.hud and self.player:
             self.hud.render(self.player, self.wave_manager.current_wave, self.score, len(self.enemies))
 
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
-        # DEBUG
         if self.show_debug:
             self._render_debug_info(enemies_rendered)
 
@@ -253,7 +242,6 @@ class GameplayScene(Scene):
         for y in range(start_y, WINDOW_HEIGHT, grid_size):
             pygame.draw.line(self.screen, grid_color, (0, y), (WINDOW_WIDTH, y))
             
-        # Bordes del mundo
         line_x = self.camera.offset_x
         if 0 <= line_x <= WINDOW_WIDTH:
             pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
@@ -291,7 +279,7 @@ class GameplayScene(Scene):
             f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
             f"Enemigos: {len(self.enemies)} (Renderizados: {enemies_rendered})",
             f"Proyectiles: {len(self.projectile_pool.active)}",
-            f"Partículas: {active_particles}",
+            f"Partículas: {active_particles}/{self.particle_pool.capacity}",
             f"Puntuación: {self.score}",
             "F3: Toggle Debug"
         ]
