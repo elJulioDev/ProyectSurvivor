@@ -3,7 +3,7 @@ Clase de proyectiles mejorada
 """
 import pygame
 import math
-from settings import YELLOW, WINDOW_WIDTH, WINDOW_HEIGHT
+from settings import YELLOW, WORLD_WIDTH, WORLD_HEIGHT # <--- CAMBIO IMPORTANTE
 
 class Projectile:
     def __init__(self, x, y, angle, speed=10, damage=25, penetration=1, lifetime=120, image_type='circle'):
@@ -14,12 +14,11 @@ class Projectile:
         self.size = 6
         self.color = YELLOW
         self.damage = damage
-        self.penetration = penetration  # Cuántos enemigos puede golpear
-        self.lifetime = lifetime        # Cuánto tiempo dura (frames)
+        self.penetration = penetration
+        self.lifetime = lifetime
         self.is_alive = True
-        self.image_type = image_type    # 'circle', 'square', etc.
+        self.image_type = image_type
         
-        # Lista de enemigos ya golpeados para no dañarlos cada frame
         self.hit_enemies = []
         
         self.vel_x = math.cos(angle) * speed
@@ -40,14 +39,13 @@ class Projectile:
         self.rect.x = int(self.x - self.size // 2)
         self.rect.y = int(self.y - self.size // 2)
         
-        # Reducir vida útil
         self.lifetime -= 1
         if self.lifetime <= 0:
             self.is_alive = False
             
-        # Límites de pantalla (con margen)
-        if (self.x < -50 or self.x > WINDOW_WIDTH + 50 or
-            self.y < -50 or self.y > WINDOW_HEIGHT + 50):
+        # --- CORRECCIÓN: Usar límites del MUNDO, no de la ventana ---
+        if (self.x < -50 or self.x > WORLD_WIDTH + 50 or
+            self.y < -50 or self.y > WORLD_HEIGHT + 50):
             self.is_alive = False
     
     def check_collision(self, enemies):
@@ -63,23 +61,22 @@ class Projectile:
                     if self.penetration <= 0:
                         self.is_alive = False
                     
-                    return enemy # Retorna el enemigo golpeado
+                    return enemy
         return None
     
-    def render(self, screen):
+    def render(self, screen, camera):
         if not self.is_alive:
             return
             
-        pos = (int(self.x), int(self.y))
+        screen_pos = camera.apply_coords(self.x, self.y)
+        pos = (int(screen_pos[0]), int(screen_pos[1]))
         
         if self.image_type == 'circle':
             pygame.draw.circle(screen, self.color, pos, self.size)
-            # Brillo
             pygame.draw.circle(screen, (255, 255, 200), pos, max(1, self.size // 2))
             
         elif self.image_type == 'square':
-            # Efecto de rotación simple
             rect_surf = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)
             pygame.draw.rect(rect_surf, self.color, (0, 0, self.size*2, self.size*2))
             rotated_surf = pygame.transform.rotate(rect_surf, self.lifetime * 10)
-            screen.blit(rotated_surf, (self.x - rotated_surf.get_width()//2, self.y - rotated_surf.get_height()//2))
+            screen.blit(rotated_surf, (screen_pos[0] - rotated_surf.get_width()//2, screen_pos[1] - rotated_surf.get_height()//2))

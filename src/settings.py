@@ -5,6 +5,11 @@ Configuraciones globales del juego
 # Ventana
 WINDOW_WIDTH = 800
 WINDOW_HEIGHT = 600
+
+# Configuración del Mundo
+WORLD_WIDTH = 2400  # 3x ancho pantalla
+WORLD_HEIGHT = 1800 # 3x alto pantalla
+
 FPS = 60
 TITLE = "ProyectSurvivor"
 

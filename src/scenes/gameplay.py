@@ -3,11 +3,12 @@ Escena principal del juego (gameplay)
 """
 import pygame
 from scenes.scene import Scene
-from settings import BLACK, WINDOW_WIDTH, WINDOW_HEIGHT
+from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, DARK_GRAY, BLACK
 from entities.player import Player
 from entities.particle import ParticleSystem
 from ui.hud import HUD
 from utils.wave_manager import WaveManager
+from utils.camera import Camera
 
 class GameplayScene(Scene):
     def __init__(self, game):
@@ -29,10 +30,13 @@ class GameplayScene(Scene):
         # Control de disparo
         self.shoot_cooldown = 0
         self.shoot_delay = 15
+
+        # Inicializar Cámara con tamaño del MUNDO
+        self.camera = Camera(WORLD_WIDTH, WORLD_HEIGHT)
     
     def on_enter(self):
         """Inicializa el gameplay cuando se entra a la escena"""
-        self.player = Player(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)
+        self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         self.enemies = []
         self.projectiles = []
         self.particle_system.clear()
@@ -61,8 +65,9 @@ class GameplayScene(Scene):
         
         # Actualizar jugador
         self.player.handle_input(keys)
-        self.player.update_rotation(mouse_pos)
+        self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
         self.player.update()
+        self.camera.update(self.player)
         
         # Actualizar armas (y sumar puntos si matan enemigos directamente)
         for weapon in self.player.weapons:
@@ -114,30 +119,76 @@ class GameplayScene(Scene):
     def render(self):
         self.screen.fill(BLACK)
 
-        # Renderizar armas especiales (como el orbital)
+        # Para dar sensación de movimiento
+        self._render_grid()
+
+        # Armas (Orbital/Laser)
         for weapon in self.player.weapons:
              if hasattr(weapon, 'render'):
-                 weapon.render(self.screen)
+                 weapon.render(self.screen, self.camera) # Pasar cámara
         
-        # Renderizar en orden: partículas → proyectiles → enemigos → jugador → HUD
-        self.particle_system.render(self.screen)
+        # Partículas
+        self.particle_system.render(self.screen, self.camera)
         
+        # Proyectiles
         for projectile in self.projectiles:
-            projectile.render(self.screen)
+            projectile.render(self.screen, self.camera)
         
+        # Enemigos (Optimización: Solo dibujar los que están en pantalla)
         for enemy in self.enemies:
-            enemy.render(self.screen)
+            # Simple Culling: Si el rect en pantalla choca con la pantalla
+            screen_rect = self.camera.apply_rect(enemy.rect)
+            if screen_rect.colliderect(self.screen.get_rect()):
+                enemy.render(self.screen, self.camera)
         
+        # Jugador
         if self.player:
-            self.player.render(self.screen)
+            self.player.render(self.screen, self.camera)
         
+        # HUD (El HUD NO usa cámara, se dibuja fijo en pantalla)
         if self.hud and self.player:
             self.hud.render(self.player, self.wave_manager.current_wave, self.score, len(self.enemies))
-        
+
         # Mensaje de oleada completada
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
-    
+
+    def _render_grid(self):
+        """Dibuja una cuadrícula ajustada a la cámara"""
+        grid_size = 100
+        # Calcular inicio del grid basado en la cámara para efecto infinito
+        start_x = self.camera.offset_x % grid_size
+        start_y = self.camera.offset_y % grid_size
+        
+        # Color gris muy oscuro
+        grid_color = (30, 30, 30)
+        
+        for x in range(start_x, WINDOW_WIDTH, grid_size):
+            pygame.draw.line(self.screen, grid_color, (x, 0), (x, WINDOW_HEIGHT))
+        for y in range(start_y, WINDOW_HEIGHT, grid_size):
+            pygame.draw.line(self.screen, grid_color, (0, y), (WINDOW_WIDTH, y))
+            
+        # Dibujar bordes del mundo (para saber dónde termina)
+        # Borde Izquierdo
+        line_x = self.camera.offset_x
+        if 0 <= line_x <= WINDOW_WIDTH:
+            pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
+            
+        # Borde Derecho
+        line_x = self.camera.offset_x + WORLD_WIDTH
+        if 0 <= line_x <= WINDOW_WIDTH:
+            pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
+            
+        # Borde Superior
+        line_y = self.camera.offset_y
+        if 0 <= line_y <= WINDOW_HEIGHT:
+            pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
+
+        # Borde Inferior
+        line_y = self.camera.offset_y + WORLD_HEIGHT
+        if 0 <= line_y <= WINDOW_HEIGHT:
+             pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
+
     def _render_wave_transition(self):
         """Renderiza la transición entre oleadas"""
         progress = self.wave_manager.get_completion_progress()

@@ -47,7 +47,7 @@ class Particle:
         if self.lifetime <= 0:
             self.is_alive = False
     
-    def render(self, screen):
+    def render(self, screen, camera): # <--- AÑADIDO: argumento camera
         """Renderiza la partícula con fade out"""
         if not self.is_alive:
             return
@@ -63,7 +63,12 @@ class Particle:
         color_with_alpha = (*self.color, alpha)
         pygame.draw.circle(surf, color_with_alpha, (current_size, current_size), current_size)
         
-        screen.blit(surf, (int(self.x - current_size), int(self.y - current_size)))
+        # --- AÑADIDO: Conversión de coordenadas de mundo a pantalla ---
+        screen_pos = camera.apply_coords(self.x, self.y)
+        screen_x = int(screen_pos[0] - current_size)
+        screen_y = int(screen_pos[1] - current_size)
+        
+        screen.blit(surf, (screen_x, screen_y))
 
 
 class ParticleSystem:
@@ -122,10 +127,10 @@ class ParticleSystem:
             if not particle.is_alive:
                 self.particles.remove(particle)
     
-    def render(self, screen):
+    def render(self, screen, camera): # <--- AÑADIDO: argumento camera
         """Renderiza todas las partículas"""
         for particle in self.particles:
-            particle.render(screen)
+            particle.render(screen, camera) # <--- AÑADIDO: pasar camera
     
     def clear(self):
         """Limpia todas las partículas"""

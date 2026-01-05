@@ -5,7 +5,8 @@ import pygame
 import math
 from settings import (
     PLAYER_SIZE, PLAYER_SPEED, WHITE,
-    WINDOW_WIDTH, WINDOW_HEIGHT
+    WINDOW_WIDTH, WINDOW_HEIGHT,
+    WORLD_WIDTH, WORLD_HEIGHT
 )
 from entities.weapon import WandWeapon, ShotgunWeapon, OrbitalWeapon, LaserWeapon
 
@@ -35,7 +36,7 @@ class Player:
 
         # Armas
         self.weapons = []
-        self.weapons.append(ShotgunWeapon(self)) 
+        self.weapons.append(ShotgunWeapon(self))
         
         # Hitbox (más pequeña que el sprite visual)
         hitbox_size = self.size - 4
@@ -113,10 +114,18 @@ class Player:
             self.vel_x *= 0.7071
             self.vel_y *= 0.7071
     
-    def update_rotation(self, mouse_pos):
-        """Actualiza rotación hacia el mouse"""
-        dx = mouse_pos[0] - self.x
-        dy = mouse_pos[1] - self.y
+    def update_rotation(self, mouse_pos, camera_offset=(0,0)):
+        """
+        Actualiza rotación hacia el mouse.
+        IMPORTANTE: El mouse está en coordenadas de PANTALLA, 
+        el jugador en coordenadas de MUNDO.
+        """
+        # Ajustamos la posición del jugador a coordenadas de pantalla para el cálculo
+        screen_player_x = self.x + camera_offset[0]
+        screen_player_y = self.y + camera_offset[1]
+        
+        dx = mouse_pos[0] - screen_player_x
+        dy = mouse_pos[1] - screen_player_y
         self.angle = math.atan2(dy, dx)
     
     def update(self, dt=1):
@@ -139,9 +148,10 @@ class Player:
             self.x += self.vel_x * dt
             self.y += self.vel_y * dt
         
-        # Límites
-        self.x = max(self.size, min(WINDOW_WIDTH - self.size, self.x))
-        self.y = max(self.size, min(WINDOW_HEIGHT - self.size, self.y))
+        # --- CAMBIO: LÍMITES DEL MUNDO ---
+        # Antes usabas WINDOW_WIDTH, ahora WORLD_WIDTH
+        self.x = max(self.size, min(WORLD_WIDTH - self.size, self.x))
+        self.y = max(self.size, min(WORLD_HEIGHT - self.size, self.y))
         
         # Hitbox
         hitbox_size = self.size - 4
@@ -172,11 +182,15 @@ class Player:
         from entities.projectile import Projectile
         return Projectile(self.x, self.y, self.angle)
     
-    def render(self, screen):
+    def render(self, screen, camera):
         """Renderiza el jugador como pixel blanco con efectos"""
         if not self.is_alive:
             return
         
+        # Calcular posición en pantalla usando la cámara
+        screen_pos = camera.apply_coords(self.x, self.y)
+        screen_x, screen_y = int(screen_pos[0]), int(screen_pos[1])
+
         # Parpadeo SÓLO durante invulnerabilidad por daño
         if self.invulnerable_frames > 0 and self.invulnerable_frames % 6 < 3:
             return
@@ -187,9 +201,9 @@ class Player:
                 ghost_alpha = 100 - i * 30
                 ghost_surf = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
                 ghost_surf.fill((*self.color[:3], ghost_alpha))
-                offset_x = -self.dash_vector[0] * (i+1) * 10
-                offset_y = -self.dash_vector[1] * (i+1) * 10
-                screen.blit(ghost_surf, (self.x - self.size//2 + offset_x, self.y - self.size//2 + offset_y))
+                ghost_x = screen_x - self.dash_vector[0] * (i+1) * 10
+                ghost_y = screen_y - self.dash_vector[1] * (i+1) * 10
+                screen.blit(ghost_surf, (ghost_x - self.size//2, ghost_y - self.size//2))
 
         # Color con flash de daño
         render_color = self.color
@@ -198,14 +212,12 @@ class Player:
             render_color = (255, max(0, 255 - flash), max(0, 255 - flash))
         
         # Cuerpo principal
-        main_rect = pygame.Rect(self.x - self.size//2, self.y - self.size//2, self.size, self.size)
-        pygame.draw.rect(screen, render_color, main_rect)
-        pygame.draw.rect(screen, (200, 200, 200), main_rect, 1)
+        pygame.draw.rect(screen, render_color, (screen_x - self.size//2, screen_y - self.size//2, self.size, self.size))
         
         # Línea de dirección (cañón)
-        end_x = self.x + math.cos(self.angle) * (self.size * 1.2)
-        end_y = self.y + math.sin(self.angle) * (self.size * 1.2)
-        pygame.draw.line(screen, render_color, (self.x, self.y), (end_x, end_y), 3)
+        end_x = screen_x + math.cos(self.angle) * (self.size * 1.2)
+        end_y = screen_y + math.sin(self.angle) * (self.size * 1.2)
+        pygame.draw.line(screen, render_color, (screen_x, screen_y), (end_x, end_y), 3)
     
     def get_position(self):
         return (self.x, self.y)
