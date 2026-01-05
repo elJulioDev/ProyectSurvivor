@@ -49,7 +49,7 @@ class PistolWeapon(Weapon):
     """
     def __init__(self, owner):
         # Cooldown bajo para disparo semiautomático rápido
-        super().__init__(owner, cooldown=25, damage=25)
+        super().__init__(owner, cooldown=15, damage=15)
         
     def activate(self):
         if not self.projectile_pool:
@@ -80,7 +80,7 @@ class ShotgunWeapon(Weapon):
     Mejorada para mayor consistencia en los impactos.
     """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=55, damage=12) # Daño por perdigón
+        super().__init__(owner, cooldown=50, damage=20) # Daño por perdigón
         self.pellets = 8    # Aumentado de 5 a 8 para evitar huecos entre balas
         self.spread = 0.5   # Apertura del abanico (en radianes)
         
@@ -184,7 +184,7 @@ class AssaultRifleWeapon(Weapon):
     """
     def __init__(self, owner):
         # Cooldown: 8 frames (aprox 7-8 balas por segundo a 60 FPS)
-        super().__init__(owner, cooldown=8, damage=12)
+        super().__init__(owner, cooldown=8, damage=18)
         self.spread = 0.15 # Dispersión moderada (menos que la escopeta, más que la pistola)
 
     def activate(self):
