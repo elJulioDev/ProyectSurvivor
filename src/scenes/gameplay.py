@@ -41,13 +41,16 @@ class GameplayScene(Scene):
         self.shoot_cooldown = 0
     
     def handle_events(self, event):
+        # Pasar eventos al jugador para detectar el Dash
+        if self.player:
+            self.player.handle_event(event)
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
     
     def update(self):
-        # Verificar si el jugador murió
         if not self.player or not self.player.is_alive:
             from scenes.game_over import GameOverScene
             self.next_scene = GameOverScene(self.game, self.score, self.wave_manager.current_wave)
@@ -55,42 +58,38 @@ class GameplayScene(Scene):
         
         keys = pygame.key.get_pressed()
         mouse_pos = pygame.mouse.get_pos()
-        mouse_buttons = pygame.mouse.get_pressed()
         
         # Actualizar jugador
         self.player.handle_input(keys)
         self.player.update_rotation(mouse_pos)
         self.player.update()
         
-        # Sistema de disparo
-        if self.shoot_cooldown > 0:
-            self.shoot_cooldown -= 1
-        
-        # Actualizar cada arma equipada
+        # Actualizar armas (y sumar puntos si matan enemigos directamente)
         for weapon in self.player.weapons:
-            # Algunas armas necesitan acceso a proyectiles, otras a particulas
-            if hasattr(weapon, 'render'): # Es un arma física como el Orbital
-                 weapon.update(self.enemies, self.particle_system)
-            else: # Es un arma de disparo como la Varita
+            points_gained = 0
+            if hasattr(weapon, 'render'): # Armas físicas (Orbital, Laser)
+                 points_gained = weapon.update(self.enemies, particle_system=self.particle_system)
+            else: # Armas de proyectiles (Varita, Escopeta)
                  weapon.update(self.enemies, self.projectiles)
+            
+            # Sumar puntos devueltos por armas directas
+            if points_gained > 0:
+                self.score += points_gained
         
-        # Actualizar proyectiles
+        # Actualizar proyectiles y sumar puntos de ellos
         for projectile in self.projectiles[:]:
             projectile.update()
-            
-            # check_collision ahora devuelve el enemigo golpeado pero no mata 
-            # necesariamente el proyectil (gracias a la lógica de penetración)
             hit_enemy = projectile.check_collision(self.enemies)
             
             if hit_enemy:
-                # Efectos visuales y daño
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 self.particle_system.create_impact_particles(hit_enemy.x, hit_enemy.y, hit_enemy.color)
                 
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
                     self.particle_system.create_death_particles(hit_enemy.x, hit_enemy.y, hit_enemy.color)
-                    self.enemies.remove(hit_enemy)
+                    if hit_enemy in self.enemies:
+                        self.enemies.remove(hit_enemy)
             
             if not projectile.is_alive:
                 self.projectiles.remove(projectile)

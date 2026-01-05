@@ -14,26 +14,28 @@ class Weapon:
         self.damage = damage
         self.level = 1
 
-    def update(self, target_list, projectile_list):
+    def update(self, target_list, projectile_list=None, particle_system=None):
         if self.current_cooldown > 0:
             self.current_cooldown -= 1
-            return
+            return 0  # Retorna 0 puntos
 
         if self.activate(target_list, projectile_list):
             self.current_cooldown = self.cooldown
+        
+        return 0 # Por defecto no da puntos directos (los proyectiles los dan al impactar)
 
     def activate(self, target_list, projectile_list):
         return False
 
 class WandWeapon(Weapon):
-    """Dispara al enemigo más cercano"""
+    """Dispara al enemigo más cercano (Pistola)"""
     def __init__(self, owner):
-        super().__init__(owner, cooldown=45, damage=25)
+        super().__init__(owner, cooldown=35, damage=30) # Ajustado para sentirlo más como pistola
         
     def activate(self, target_list, projectile_list):
         if not target_list:
             return False
-            
+        
         # Buscar enemigo más cercano
         closest_enemy = None
         min_dist = float('inf')
@@ -47,11 +49,8 @@ class WandWeapon(Weapon):
                 closest_enemy = enemy
         
         if closest_enemy:
-            # Calcular ángulo
             angle = math.atan2(closest_enemy.y - py, closest_enemy.x - px)
-            
-            # Crear proyectil
-            p = Projectile(px, py, angle, speed=7, damage=self.damage, penetration=1)
+            p = Projectile(px, py, angle, speed=9, damage=self.damage, penetration=1)
             p.color = (0, 255, 255) # Cyan
             projectile_list.append(p)
             return True
@@ -64,127 +63,97 @@ class ShotgunWeapon(Weapon):
         self.pellets = 5
         
     def activate(self, target_list, projectile_list):
-        # Dispara hacia donde mira el jugador (o hacia el mouse si prefieres)
         mouse_pos = pygame.mouse.get_pos()
         base_angle = math.atan2(mouse_pos[1] - self.owner.y, mouse_pos[0] - self.owner.x)
-        
-        spread = 0.5 # 30 grados aprox
+        spread = 0.5 
         
         for i in range(self.pellets):
             offset = (i - self.pellets // 2) * (spread / self.pellets)
             p = Projectile(
                 self.owner.x, self.owner.y, 
                 base_angle + offset, 
-                speed=12, 
-                damage=self.damage, 
-                penetration=2,
-                lifetime=40,
-                image_type='square'
+                speed=12, damage=self.damage, penetration=2, lifetime=40, image_type='square'
             )
-            p.color = (255, 100, 0) # Naranja
+            p.color = (255, 100, 0)
             projectile_list.append(p)
         return True
 
 class OrbitalWeapon(Weapon):
     """Orbe que gira alrededor del jugador (Escudo)"""
     def __init__(self, owner):
-        super().__init__(owner, cooldown=0, damage=5) # Cooldown 0 porque siempre está activo
+        super().__init__(owner, cooldown=0, damage=5)
         self.angle = 0
         self.radius = 70
         self.speed = 0.05
-        # Este arma gestiona su propio "proyectil" interno o hitbox
         self.orbit_rect = pygame.Rect(0, 0, 20, 20)
         
-    def update(self, target_list, particle_system=None):
-        # Actualizar posición
+    def update(self, target_list, projectile_list=None, particle_system=None):
         self.angle += self.speed
         cx = self.owner.x + math.cos(self.angle) * self.radius
         cy = self.owner.y + math.sin(self.angle) * self.radius
-        
         self.orbit_rect.center = (int(cx), int(cy))
         
-        # Colisiones
+        points_gained = 0
+        
+        # Colisiones directas (sin proyectiles)
         for enemy in target_list:
             if enemy.is_alive and self.orbit_rect.colliderect(enemy.rect):
-                if enemy.take_damage(1): # Daño pequeño pero constante
-                     if particle_system:
-                         particle_system.create_impact_particles(enemy.x, enemy.y, (100, 100, 255), 2)
+                if enemy.take_damage(1): # Si muere devuelve True
+                    points_gained += enemy.points
+                    if particle_system:
+                        particle_system.create_death_particles(enemy.x, enemy.y, enemy.color)
+                elif particle_system and random.random() < 0.1:
+                    particle_system.create_impact_particles(enemy.x, enemy.y, (100, 100, 255), 2)
+                    
+        return points_gained
 
     def render(self, screen):
         pygame.draw.circle(screen, (100, 100, 255), self.orbit_rect.center, 10)
         pygame.draw.line(screen, (50, 50, 150), (self.owner.x, self.owner.y), self.orbit_rect.center, 2)
 
-
 class LaserWeapon(Weapon):
-    """
-    Láser estilo Metal Slug:
-    - Dispara en la dirección que apunta el jugador
-    - Atraviesa TODOS los enemigos en la línea
-    - Daño por 'tick' (intervalo)
-    """
+    """Láser estilo Metal Slug"""
     def __init__(self, owner):
-        # Cooldown bajo para que haga daño rápido, pero no cada frame (sería demasiado op)
         super().__init__(owner, cooldown=0, damage=4) 
-        self.max_range = 800  # Largo del láser
-        self.hit_interval = 1  # Frames entre golpes al mismo enemigo
-        self.enemy_hit_timers = {}  # Diccionario para controlar el daño por enemigo
+        self.max_range = 800
+        self.hit_interval = 1
+        self.enemy_hit_timers = {}
         
-        # Audio (opcional, placeholder)
-        self.firing = False
-
-    def update(self, target_list, particle_system=None):
-        # Limpiar temporizadores de enemigos muertos o fuera de rango
-        current_time = pygame.time.get_ticks()
-        
-        # Calcular inicio y fin del láser basado en el ángulo del jugador
+    def update(self, target_list, projectile_list=None, particle_system=None):
         start_pos = (self.owner.x, self.owner.y)
         end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
         end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
         end_pos = (end_x, end_y)
         
-        # Detectar colisiones
+        points_gained = 0
+        
         for enemy in target_list:
-            if not enemy.is_alive:
-                continue
+            if not enemy.is_alive: continue
                 
-            # clipline devuelve los puntos donde la línea entra y sale del rect
-            # si devuelve algo, es que el láser tocó al enemigo
             clip = enemy.rect.clipline(start_pos, end_pos)
-            
             if clip:
-                # Verificar si podemos dañar a este enemigo (Tick rate)
                 enemy_id = id(enemy)
-                if enemy_id not in self.enemy_hit_timers:
-                    self.enemy_hit_timers[enemy_id] = 0
+                if enemy_id not in self.enemy_hit_timers: self.enemy_hit_timers[enemy_id] = 0
                 
                 if self.enemy_hit_timers[enemy_id] <= 0:
-                    # APLICAR DAÑO
-                    enemy.take_damage(self.damage)
-                    self.enemy_hit_timers[enemy_id] = self.hit_interval
+                    if enemy.take_damage(self.damage): # Si muere
+                        points_gained += enemy.points
+                        if particle_system:
+                             particle_system.create_death_particles(enemy.x, enemy.y, enemy.color)
                     
-                    # Efectos visuales en el punto de impacto
-                    # clip[0] es el primer punto de contacto
+                    self.enemy_hit_timers[enemy_id] = self.hit_interval
                     if particle_system:
                         particle_system.create_impact_particles(clip[0][0], clip[0][1], (200, 255, 255), count=3)
                 else:
                     self.enemy_hit_timers[enemy_id] -= 1
+        
+        return points_gained
 
     def render(self, screen):
-        # Calcular coordenadas (igual que en update)
         start_pos = (self.owner.x, self.owner.y)
         end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
         end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
         end_pos = (end_x, end_y)
-
-        # Dibujar el láser con efecto de "brillo" (varias líneas de diferente grosor)
-        
-        # 1. Brillo exterior (Transparente/Difuso)
-        # Para hacer transparencia en líneas necesitamos una superficie auxiliar o usar colores con alpha simulado
-        # Pygame draw.line no soporta alpha directamente bien, así que usaremos colores oscuros para el borde
-        pygame.draw.line(screen, (0, 100, 100), start_pos, end_pos, 15) # Cyan oscuro grueso
-        
-        # 2. Cuerpo del láser (Cyan brillante)
+        pygame.draw.line(screen, (0, 100, 100), start_pos, end_pos, 15)
         pygame.draw.line(screen, (0, 255, 255), start_pos, end_pos, 7)
-        
-        # 3. Núcleo de energía (Blanco)
         pygame.draw.line(screen, (255, 255, 255), start_pos, end_pos, 3)
