@@ -1,48 +1,73 @@
 """
-Escena principal del juego (gameplay)
+Escena de Gameplay COMPLETAMENTE OPTIMIZADA
+- DeltaTime real (movimiento independiente de FPS)
+- Object Pooling (proyectiles + partículas)
+- Spatial Grid (colisiones O(1))
+- Logic Culling (actualizar solo lo visible)
+- Surface Caching (partículas pre-renderizadas)
 """
-import pygame, math
+import pygame
+import math
 from scenes.scene import Scene
-from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, DARK_GRAY, BLACK
+from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
 from entities.player import Player
 from entities.particle import ParticleSystem
 from ui.hud import HUD
 from utils.wave_manager import WaveManager
 from utils.camera import Camera
+from utils.object_pool import ProjectilePool, ParticlePool
+from utils.spatial_grid import SpatialGrid
 
 class GameplayScene(Scene):
     def __init__(self, game):
         super().__init__(game)
         
+        # ========== OPTIMIZACIÓN: OBJECT POOLING ==========
+        self.projectile_pool = ProjectilePool(initial_size=500)
+        self.particle_pool = ParticlePool(initial_size=1000)
+        
+        # ========== OPTIMIZACIÓN: SPATIAL GRID ==========
+        self.spatial_grid = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
+        
         # Entidades
         self.player = None
         self.enemies = []
-        self.projectiles = []
         self.particle_system = ParticleSystem()
         
         # Sistemas
         self.hud = HUD(self.screen)
         self.wave_manager = WaveManager()
+        self.camera = Camera(WORLD_WIDTH, WORLD_HEIGHT)
         
         # Estadísticas
         self.score = 0
         
-        # Control de disparo
-        self.shoot_cooldown = 0
-        self.shoot_delay = 15
-
-        # Inicializar Cámara
-        self.camera = Camera(WORLD_WIDTH, WORLD_HEIGHT)
+        # ========== DELTATIME ==========
+        self.clock = pygame.time.Clock()
+        self.dt = 1.0
+        self.target_fps = 60
+        
+        # Métricas de rendimiento
+        self.frame_counter = 0
+        self.show_debug = False  # Cambiar a True para ver FPS
     
     def on_enter(self):
-        """Inicializa el gameplay"""
+        """Inicializa el gameplay y conecta los pools"""
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         self.enemies = []
-        self.projectiles = []
-        self.particle_system.clear()
+        
+        # ========== CONECTAR POOLS A LAS ARMAS ==========
+        for weapon in self.player.weapons:
+            weapon.set_projectile_pool(self.projectile_pool)
+        
+        # ========== CONECTAR POOL AL SISTEMA DE PARTÍCULAS ==========
+        self.particle_system.set_pool(self.particle_pool)
+        
+        self.projectile_pool.clear()
+        self.particle_pool.clear()
         self.wave_manager.start_wave()
         self.score = 0
-        self.shoot_cooldown = 0
+        self.dt = 1.0
     
     def handle_events(self, event):
         if self.player:
@@ -52,8 +77,16 @@ class GameplayScene(Scene):
             if event.key == pygame.K_ESCAPE:
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
+            elif event.key == pygame.K_F3:
+                self.show_debug = not self.show_debug
     
     def update(self):
+        # ========== CALCULAR DELTATIME ==========
+        # dt = 1.0 a 60fps, dt = 2.0 a 30fps, dt = 0.5 a 120fps
+        raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
+        # Clamp para evitar saltos enormes (ej. Alt+Tab)
+        self.dt = min(raw_dt, 3.0)
+        
         if not self.player or not self.player.is_alive:
             from scenes.game_over import GameOverScene
             self.next_scene = GameOverScene(self.game, self.score, self.wave_manager.current_wave)
@@ -62,48 +95,50 @@ class GameplayScene(Scene):
         keys = pygame.key.get_pressed()
         mouse_pos = pygame.mouse.get_pos()
         
-        # 1. Actualizar Jugador
-        self.player.handle_input(keys)
+        # ========== ACTUALIZAR JUGADOR ==========
+        self.player.handle_input(keys, self.dt)
         self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
-        self.player.update()
+        self.player.update(self.dt)
         
-        # 2. Actualizar Cámara (AQUÍ ESTABA EL FALLO ANTERIOR)
-        # Pasamos mouse_pos para que la cámara "mire" hacia donde apuntas
+        # ========== ACTUALIZAR CÁMARA ==========
         self.camera.update(self.player, mouse_pos)
         
-        # Actualizar armas
-        for weapon in self.player.weapons:
-            points_gained = 0
-            if hasattr(weapon, 'render'): 
-                 points_gained = weapon.update(self.enemies, particle_system=self.particle_system)
-            else: 
-                 weapon.update(self.enemies, self.projectiles)
-            if points_gained > 0: self.score += points_gained
+        # ========== REPOBLAR SPATIAL GRID (Cada frame) ==========
+        self.spatial_grid.clear()
+        for enemy in self.enemies:
+            if enemy.is_alive:
+                self.spatial_grid.insert(enemy)
         
-        # Actualizar proyectiles
-        for projectile in self.projectiles[:]:
-            projectile.update()
-            # Optimización: Eliminar proyectiles muy lejos fuera de pantalla
-            if not self.camera.is_on_screen(projectile.rect):
-                # Opcional: solo eliminarlos si están MUY lejos (margen doble)
-                # Por ahora dejamos que su lifetime los mate, o el límite del mundo.
-                pass
-
-            hit_enemy = projectile.check_collision(self.enemies)
+        # ========== ACTUALIZAR ARMAS ==========
+        for weapon in self.player.weapons:
+            points_gained = weapon.update(
+                self.enemies, 
+                particle_system=self.particle_system, 
+                dt=self.dt
+            )
+            if points_gained > 0:
+                self.score += points_gained
+        
+        # ========== ACTUALIZAR PROYECTILES (POOL) ==========
+        for projectile in self.projectile_pool.active[:]:
+            projectile.update(self.dt)
+            
+            # ========== COLISIONES CON GRID ESPACIAL ==========
+            hit_enemy = projectile.check_collision_grid(self.spatial_grid)
+            
             if hit_enemy:
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 
-                # --- CALCULAR DIRECCIÓN DEL IMPACTO ---
-                # Usamos la velocidad del proyectil normalizada
-                p_speed = math.hypot(projectile.vel_x, projectile.vel_y)
-                if p_speed > 0:
-                    dir_x = projectile.vel_x / p_speed
-                    dir_y = projectile.vel_y / p_speed
+                # Dirección del impacto
+                p_speed_sq = projectile.vel_x * projectile.vel_x + projectile.vel_y * projectile.vel_y
+                if p_speed_sq > 0.01:
+                    inv_speed = 1.0 / math.sqrt(p_speed_sq)
+                    dir_x = projectile.vel_x * inv_speed
+                    dir_y = projectile.vel_y * inv_speed
                     direction = (dir_x, dir_y)
                 else:
                     direction = None
 
-                # Crear salpicadura direccional (chorro hacia atrás)
                 self.particle_system.create_blood_splatter(
                     hit_enemy.x, hit_enemy.y, 
                     direction_vector=direction, 
@@ -117,48 +152,65 @@ class GameplayScene(Scene):
                         self.enemies.remove(hit_enemy)
             
             if not projectile.is_alive:
-                self.projectiles.remove(projectile)
+                self.projectile_pool.return_to_pool(projectile)
         
-        # Sistema de oleadas
+        # ========== SISTEMA DE OLEADAS ==========
         new_enemy = self.wave_manager.update(self.enemies)
         if new_enemy:
             self.enemies.append(new_enemy)
         
-        # Actualizar enemigos
+        # ========== ACTUALIZAR ENEMIGOS (CON LOGIC CULLING) ==========
+        viewport_margin = 200  # Margen para seguir actualizando fuera de pantalla
+        
         for enemy in self.enemies[:]:
-            enemy.move_towards_player(self.player.get_position())
-            # PASAR EL SISTEMA DE PARTÍCULAS
-            enemy.update(self.particle_system) 
-            enemy.attack(self.player)
-            if not enemy.is_alive: self.enemies.remove(enemy)
+            # ========== LOGIC CULLING ==========
+            # Si está MUY lejos, solo actualizar posición básica
+            dist_sq_to_player = enemy.get_distance_squared_to(self.player.x, self.player.y)
+            max_update_dist_sq = (WINDOW_WIDTH + viewport_margin) ** 2
             
-        self.particle_system.update()
+            if dist_sq_to_player > max_update_dist_sq:
+                # Enemigo muy lejos: solo mover hacia jugador (sin sangrado, sin ataque)
+                enemy.move_towards_player(self.player.get_position(), self.dt)
+            else:
+                # Enemigo cerca: actualización completa
+                enemy.move_towards_player(self.player.get_position(), self.dt)
+                enemy.update(self.particle_system, self.dt)
+                enemy.attack(self.player)
+            
+            if not enemy.is_alive:
+                self.enemies.remove(enemy)
+        
+        # ========== ACTUALIZAR PARTÍCULAS (POOL) ==========
+        self.particle_pool.update_all(self.dt)
+        
+        self.frame_counter += 1
     
     def render(self):
         self.screen.fill(BLACK)
 
         self._render_grid()
 
-        # --- RENDERIZADO OPTIMIZADO ---
+        # ========== RENDERIZADO OPTIMIZADO (Con Culling) ==========
         
-        # 1. Armas Físicas (Orbital, Laser)
+        # 1. Armas Físicas
         for weapon in self.player.weapons:
-             if hasattr(weapon, 'render'):
-                 weapon.render(self.screen, self.camera)
+            if hasattr(weapon, 'render'):
+                weapon.render(self.screen, self.camera)
         
-        # 2. Partículas
-        self.particle_system.render(self.screen, self.camera)
+        # 2. Partículas (El pool ya optimiza con cache)
+        self.particle_pool.render_all(self.screen, self.camera)
         
-        # 3. Proyectiles (Solo si están en pantalla + margen)
-        for projectile in self.projectiles:
+        # 3. Proyectiles (Solo visibles)
+        for projectile in self.projectile_pool.active:
             if self.camera.is_on_screen(projectile.rect):
                 projectile.render(self.screen, self.camera)
         
-        # 4. Enemigos (Solo si están en pantalla + margen)
+        # 4. Enemigos (Solo visibles)
+        enemies_rendered = 0
         for enemy in self.enemies:
-            # Usamos el nuevo método is_on_screen que ya incluye el margen seguro
             if self.camera.is_on_screen(enemy.rect):
                 enemy.render(self.screen, self.camera)
+                enemies_rendered += 1
         
         # 5. Jugador
         if self.player:
@@ -170,9 +222,13 @@ class GameplayScene(Scene):
 
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
+        
+        # ========== DEBUG INFO ==========
+        if self.show_debug:
+            self._render_debug_info(enemies_rendered)
 
     def _render_grid(self):
-        """Dibuja una cuadrícula ajustada a la cámara (Optimizada)"""
+        """Grid optimizado"""
         grid_size = 100
         start_x = self.camera.offset_x % grid_size
         start_y = self.camera.offset_y % grid_size
@@ -185,23 +241,22 @@ class GameplayScene(Scene):
             
         # Bordes del mundo
         line_x = self.camera.offset_x
-        if 0 <= line_x <= WINDOW_WIDTH: # Izquierda
+        if 0 <= line_x <= WINDOW_WIDTH:
             pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
             
         line_x = self.camera.offset_x + WORLD_WIDTH
-        if 0 <= line_x <= WINDOW_WIDTH: # Derecha
+        if 0 <= line_x <= WINDOW_WIDTH:
             pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
             
         line_y = self.camera.offset_y
-        if 0 <= line_y <= WINDOW_HEIGHT: # Arriba
+        if 0 <= line_y <= WINDOW_HEIGHT:
             pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
 
         line_y = self.camera.offset_y + WORLD_HEIGHT
-        if 0 <= line_y <= WINDOW_HEIGHT: # Abajo
-             pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
+        if 0 <= line_y <= WINDOW_HEIGHT:
+            pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
 
     def _render_wave_transition(self):
-        # ... (Igual que antes) ...
         progress = self.wave_manager.get_completion_progress()
         alpha = int(255 * (1 - abs(progress - 0.5) * 2))
         surf = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
@@ -210,3 +265,27 @@ class GameplayScene(Scene):
         text_rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
         surf.blit(text, text_rect)
         self.screen.blit(surf, (0, 0))
+    
+    def _render_debug_info(self, enemies_rendered):
+        """Muestra información de rendimiento"""
+        font = pygame.font.Font(None, 24)
+        
+        fps = self.clock.get_fps()
+        dt_ms = self.dt * (1000.0 / self.target_fps)
+        
+        debug_texts = [
+            f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
+            f"Enemigos: {len(self.enemies)} (Renderizados: {enemies_rendered})",
+            f"Proyectiles: {len(self.projectile_pool.active)}",
+            f"Partículas: {len(self.particle_pool.active)}",
+            f"Puntuación: {self.score}",
+            "F3: Toggle Debug"
+        ]
+        
+        y = 10
+        for text in debug_texts:
+            surf = font.render(text, True, (0, 255, 0))
+            # Sombra
+            self.screen.blit(font.render(text, True, (0, 0, 0)), (11, y + 1))
+            self.screen.blit(surf, (10, y))
+            y += 25
