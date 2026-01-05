@@ -1,7 +1,6 @@
 """
-Gestor de oleadas de enemigos
+Gestor de oleadas optimizado
 """
-import pygame
 from entities.enemy import Enemy
 from settings import ENEMIES_PER_WAVE
 
@@ -11,27 +10,36 @@ class WaveManager:
         self.enemies_in_wave = ENEMIES_PER_WAVE
         self.enemies_spawned = 0
         self.spawn_timer = 0
-        self.spawn_delay = 60  # frames entre spawns (1 segundo)
+        self.spawn_delay = 60
         self.wave_active = False
         self.wave_completed = False
+        self.completion_timer = 0  # Para controlar la transición
         
     def start_wave(self):
-        """Inicia una nueva oleada"""
+        """Inicia oleada sin bloquear"""
         self.wave_active = True
         self.wave_completed = False
         self.enemies_spawned = 0
         self.enemies_in_wave = ENEMIES_PER_WAVE + (self.current_wave - 1) * 3
         self.spawn_timer = 0
+        self.completion_timer = 0
         
-        # Aumentar dificultad gradualmente
+        # Dificultad progresiva
         self.spawn_delay = max(20, 60 - self.current_wave * 3)
     
     def update(self, enemies):
-        """Actualiza el estado de la oleada"""
+        """Actualiza sin bloqueos"""
         if not self.wave_active:
+            # Manejar transición entre oleadas
+            if self.wave_completed:
+                self.completion_timer += 1
+                if self.completion_timer >= 120:  # 2 segundos sin bloquear
+                    self.wave_completed = False
+                    self.completion_timer = 0
+                    self.start_wave()
             return None
         
-        # Spawneo de enemigos
+        # Spawn de enemigos
         if self.enemies_spawned < self.enemies_in_wave:
             self.spawn_timer += 1
             
@@ -39,11 +47,10 @@ class WaveManager:
                 self.spawn_timer = 0
                 self.enemies_spawned += 1
                 
-                # Calcular multiplicador de velocidad basado en oleada
                 speed_mult = 1.0 + (self.current_wave - 1) * 0.1
-                return Enemy.spawn_random(speed_mult)
+                return Enemy.spawn_random(speed_mult, self.current_wave)
         
-        # Verificar si la oleada terminó
+        # Verificar fin de oleada
         elif len(enemies) == 0:
             self.wave_active = False
             self.wave_completed = True
@@ -52,18 +59,19 @@ class WaveManager:
         return None
     
     def is_wave_completed(self):
-        """Retorna si la oleada actual terminó"""
         return self.wave_completed
     
-    def reset_wave_completion(self):
-        """Resetea el estado de oleada completada"""
-        self.wave_completed = False
+    def get_completion_progress(self):
+        """Retorna progreso de transición (0-1)"""
+        if not self.wave_completed:
+            return 0
+        return min(1.0, self.completion_timer / 120)
     
     def reset(self):
-        """Reinicia el gestor de oleadas"""
         self.current_wave = 1
         self.enemies_in_wave = ENEMIES_PER_WAVE
         self.enemies_spawned = 0
         self.spawn_timer = 0
         self.wave_active = False
         self.wave_completed = False
+        self.completion_timer = 0
