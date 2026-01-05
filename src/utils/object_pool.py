@@ -138,10 +138,12 @@ class ParticlePool:
                 p.update(dt)
     
     def render_all(self, screen, camera):
+        rendered_count = 0 # Contador de lo que realmente se dibuja
         blit_sequence = []
         cam_x = camera.offset_x
         cam_y = camera.offset_y
         
+        # Margen para que no desaparezcan de golpe al salir
         margin = 50
         min_x = -margin
         max_x = WINDOW_WIDTH + margin
@@ -155,9 +157,13 @@ class ParticlePool:
             screen_x = p.x + cam_x
             screen_y = p.y + cam_y
             
-            # Culling
+            # --- CULLING (Optimización) ---
+            # Si está fuera de los límites de la pantalla, saltamos al siguiente
             if not (min_x < screen_x < max_x and min_y < screen_y < max_y):
                 continue
+
+            # Si pasa el filtro, contamos y preparamos para dibujar
+            rendered_count += 1
 
             life_ratio = p.lifetime / p.max_lifetime
             if life_ratio <= 0: continue
@@ -165,7 +171,7 @@ class ParticlePool:
             alpha = int(255 * life_ratio)
             if alpha < 10: continue
 
-            # Lógica visual mejorada: Los líquidos estáticos (charcos) no se encogen
+            # Lógica visual mejorada: Los líquidos estáticos no se encogen
             is_static_liquid = (p.is_liquid and not p.is_chunk and abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1)
             
             if is_static_liquid:
@@ -177,13 +183,6 @@ class ParticlePool:
             surf = self.get_cached_surface(shape, p.color, current_size, alpha)
             
             if surf:
-                # Rotar chunks si es necesario (solo visual, no caché de rotación para ahorrar memoria)
-                if p.is_chunk:
-                    # Nota: Rotar superficies en tiempo real es costoso, 
-                    # para optimizar solo rotamos si hay pocos enemigos (Calidad ALTA)
-                    # O simplemente usamos el cuadrado alineado que ya se ve bien como "trozo"
-                    pass 
-
                 dest_x = int(screen_x - surf.get_width() // 2)
                 dest_y = int(screen_y - surf.get_height() // 2)
                 blit_sequence.append((surf, (dest_x, dest_y)))
@@ -192,6 +191,8 @@ class ParticlePool:
 
         if blit_sequence:
             screen.blits(blit_sequence)
+            
+        return rendered_count # Retornamos la cantidad real dibujada
 
     def clear(self):
         for p in self.pool:

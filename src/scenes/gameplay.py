@@ -41,6 +41,8 @@ class GameplayScene(Scene):
         
         self.frame_counter = 0
         self.show_debug = False
+
+        self.particles_rendered = 0
         
         # --- NUEVO: Contador de impactos para limitar sangre ---
         self.hit_particle_cooldown = 0
@@ -206,8 +208,9 @@ class GameplayScene(Scene):
         for weapon in self.player.weapons:
             if hasattr(weapon, 'render'):
                 weapon.render(self.screen, self.camera)
-        
-        self.particle_pool.render_all(self.screen, self.camera)
+
+        # CAPTURAMOS EL RETORNO AQUÍ
+        self.particles_rendered = self.particle_pool.render_all(self.screen, self.camera)
         
         for projectile in self.projectile_pool.active:
             if self.camera.is_on_screen(projectile.rect):
@@ -273,13 +276,15 @@ class GameplayScene(Scene):
         fps = self.clock.get_fps()
         dt_ms = self.dt * (1000.0 / self.target_fps)
         
+        # Partículas procesadas por física (CPU)
         active_particles = sum(1 for p in self.particle_pool.pool if p.is_alive)
         
         debug_texts = [
             f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
-            f"Enemigos: {len(self.enemies)} (Renderizados: {enemies_rendered})",
+            f"Enemigos: {len(self.enemies)} (Visibles: {enemies_rendered})",
             f"Proyectiles: {len(self.projectile_pool.active)}",
-            f"Partículas: {active_particles}/{self.particle_pool.capacity}",
+            # AQUI EL CAMBIO: Mostramos Activas vs Realmente Dibujadas
+            f"Partículas: {active_particles} (Visibles: {self.particles_rendered}) / {self.particle_pool.capacity}",
             f"Puntuación: {self.score}",
             "F3: Toggle Debug"
         ]
