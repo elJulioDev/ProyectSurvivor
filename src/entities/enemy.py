@@ -111,26 +111,38 @@ class Enemy:
     
     def render(self, screen, camera):
         if not self.is_alive: return
+        
+        # Calcular posición en pantalla
         screen_rect = camera.apply_rect(self.rect)
+        
         render_color = self.color
         if self.damage_flash > 0:
             flash_intensity = int(255 * (self.damage_flash / 10))
             render_color = (min(255, self.color[0] + flash_intensity), min(255, self.color[1] + flash_intensity), min(255, self.color[2] + flash_intensity))
+        
+        # Dibujar Cuerpo (Relleno)
         pygame.draw.rect(screen, render_color, screen_rect)
+        
+        # Dibujar Borde (CORREGIDO: Usar screen_rect en lugar de self.rect)
         border_color = tuple(max(0, c - 50) for c in self.color)
-        pygame.draw.rect(screen, border_color, self.rect, 2) # Ojo: aquí deberías dibujar el borde sobre screen_rect también, pero es detalle visual.
+        pygame.draw.rect(screen, border_color, screen_rect, 2) 
+        
+        # Dibujar detalle central (Ojo/Núcleo)
         center_size = max(2, self.size // 3)
-        # Fix visual pequeño: el punto central también debe usar coordenadas de cámara
         center_x = screen_rect.centerx - center_size // 2
         center_y = screen_rect.centery - center_size // 2
         pygame.draw.rect(screen, border_color, (center_x, center_y, center_size, center_size))
         
-        # Barra de vida (usando screen_rect)
+        # Barra de vida
         if self.health < self.max_health:
             bar_width = self.size
             bar_height = 4
             health_width = (self.health / self.max_health) * bar_width
+            
+            # Fondo barra
             pygame.draw.rect(screen, (60, 0, 0), (screen_rect.x, screen_rect.y - 7, bar_width, bar_height))
+            
+            # Barra vida
             health_color = (255, 0, 0) if self.health < self.max_health * 0.3 else (255, 100, 0)
             pygame.draw.rect(screen, health_color, (screen_rect.x, screen_rect.y - 7, health_width, bar_height))
 
@@ -139,7 +151,6 @@ class Enemy:
         """Genera un enemigo aleatorio en los bordes del MUNDO"""
         side = random.choice(['top', 'bottom', 'left', 'right'])
         
-        # --- CORRECCIÓN: Usar WORLD_WIDTH y WORLD_HEIGHT ---
         if side == 'top':
             x = random.randint(0, WORLD_WIDTH)
             y = -30
