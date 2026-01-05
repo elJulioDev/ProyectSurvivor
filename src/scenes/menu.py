@@ -3,7 +3,9 @@ Escena del menú principal MEJORADA
 """
 import pygame
 import math
+import sys
 from scenes.scene import Scene
+from ui.button import Button
 from settings import BLACK, WHITE, WINDOW_WIDTH, WINDOW_HEIGHT, CYAN, DARK_GRAY
 
 class MenuScene(Scene):
@@ -24,8 +26,27 @@ class MenuScene(Scene):
         self.bg_scroll_x = 0
         self.bg_scroll_y = 0
         self.bg_speed = 0.5  # Velocidad lenta
+
+        # --- BOTONES ---
+        self.btn_play = Button(WINDOW_WIDTH // 2, 340, 220, 50, "Iniciar Juego", self.font_normal)
+        self.btn_exit = Button(WINDOW_WIDTH // 2, 410, 220, 50, "Salir del Juego", self.font_normal)
     
     def handle_events(self, event):
+        mouse_pos = self.game.get_mouse_pos()
+        
+        # Actualizar hover en eventos también para respuesta inmediata
+        self.btn_play.update(mouse_pos)
+        self.btn_exit.update(mouse_pos)
+
+        # Clics en botones
+        if self.btn_play.is_clicked(event):
+            from scenes.gameplay import GameplayScene
+            self.next_scene = GameplayScene(self.game)
+        
+        if self.btn_exit.is_clicked(event):
+            pygame.quit()
+            sys.exit()
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 from scenes.gameplay import GameplayScene
@@ -33,7 +54,6 @@ class MenuScene(Scene):
     
     def update(self):
         # Limitamos a 60 FPS para consistencia en el menú
-        # dt será aprox 1.0 a 60 FPS
         dt_ms = self.clock.tick(60)
         dt = dt_ms / 16.0  # Normalizamos dt a ~1.0
         
@@ -45,6 +65,11 @@ class MenuScene(Scene):
         # Desplazamiento del fondo
         self.bg_scroll_x = (self.bg_scroll_x + self.bg_speed * dt) % 100
         self.bg_scroll_y = (self.bg_scroll_y + self.bg_speed * dt) % 100
+
+        # Actualizar estado visual de los botones (hover)
+        mouse_pos = self.game.get_mouse_pos()
+        self.btn_play.update(mouse_pos)
+        self.btn_exit.update(mouse_pos)
     
     def render(self):
         self.screen.fill(BLACK)
@@ -68,35 +93,22 @@ class MenuScene(Scene):
         # Sombra del título (offset dinámico)
         shadow_offset = 4 + int(math.sin(self.timer) * 2)
         shadow = font_animated.render(title_text, True, (0, 100, 100)) # Sombra Cyan oscuro
-        shadow_rect = shadow.get_rect(center=(WINDOW_WIDTH//2 + shadow_offset, 180 + shadow_offset))
+        shadow_rect = shadow.get_rect(center=(WINDOW_WIDTH//2 + shadow_offset, 150 + shadow_offset))
         self.screen.blit(shadow, shadow_rect)
         
         # Texto principal
         title = font_animated.render(title_text, True, title_color)
-        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 180))
+        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 150))
         self.screen.blit(title, title_rect)
         
         # Subtítulo
         subtitle = self.font_small.render("Sobrevive a la horda", True, (150, 150, 150))
-        subtitle_rect = subtitle.get_rect(center=(WINDOW_WIDTH//2, 240))
+        subtitle_rect = subtitle.get_rect(center=(WINDOW_WIDTH//2, 210))
         self.screen.blit(subtitle, subtitle_rect)
         
-        # 3. TEXTO DE INICIO (Parpadeo)
-        # Usamos math.sin para un parpadeo más elegante que el módulo
-        blink_alpha = int((math.sin(self.timer * 3) + 1) * 127.5) # 0 a 255
-        
-        start_text = self.font_normal.render("Presiona ESPACIO para comenzar", True, WHITE)
-        start_rect = start_text.get_rect(center=(WINDOW_WIDTH//2, 350))
-        
-        # Crear superficie para transparencia
-        start_surf = pygame.Surface(start_text.get_size(), pygame.SRCALPHA)
-        start_surf.blit(start_text, (0, 0))
-        
-        # Opcional: Si quieres que nunca desaparezca del todo, limita el alpha mínimo
-        final_alpha = max(50, blink_alpha)
-        start_surf.set_alpha(final_alpha)
-        
-        self.screen.blit(start_surf, start_rect)
+        # 3. RENDERIZAR BOTONES
+        self.btn_play.draw(self.screen)
+        self.btn_exit.draw(self.screen)
         
         # 4. CONTROLES (Panel visual)
         self._render_controls()
@@ -120,7 +132,7 @@ class MenuScene(Scene):
 
     def _render_controls(self):
         """Renderiza la lista de controles en un recuadro limpio"""
-        panel_y = 420
+        panel_y = 500 # Bajamos un poco el panel
         panel_height = 150
         panel_width = 400
         panel_x = (WINDOW_WIDTH - panel_width) // 2

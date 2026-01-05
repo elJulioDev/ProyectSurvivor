@@ -1,13 +1,14 @@
 """
 Escena de Gameplay con PAUSA y DEBUG corregido
 """
-import pygame, math, random
+import pygame, math, random, sys
 from scenes.scene import Scene
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE
 from entities.player import Player
 from entities.particle import ParticleSystem
 from entities.weapon import LaserWeapon
 from ui.hud import HUD
+from ui.button import Button
 from utils.wave_manager import WaveManager
 from utils.camera import Camera
 from utils.object_pool import ProjectilePool, ParticlePool
@@ -40,9 +41,15 @@ class GameplayScene(Scene):
         self.frame_counter = 0
         self.show_debug = False
         
-        # --- NUEVO: Estado de Pausa ---
+        # --- NUEVO: Estado de Pausa y Botones ---
         self.paused = False
         self.font_pause = pygame.font.Font(None, 80)
+        self.font_btn = pygame.font.Font(None, 36)
+        
+        # Botones de pausa (Centrados)
+        cx, cy = WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2
+        self.btn_continue = Button(cx, cy + 20, 200, 50, "Continuar", self.font_btn)
+        self.btn_exit = Button(cx, cy + 90, 200, 50, "Salir del Juego", self.font_btn)
 
         self.particles_rendered = 0
         self.hit_particle_cooldown = 0
@@ -65,6 +72,19 @@ class GameplayScene(Scene):
         self.paused = False
     
     def handle_events(self, event):
+        # Si estamos pausados, gestionamos los botones
+        if self.paused:
+            mouse_pos = self.game.get_mouse_pos()
+            self.btn_continue.update(mouse_pos)
+            self.btn_exit.update(mouse_pos)
+            
+            if self.btn_continue.is_clicked(event):
+                self.paused = False
+            
+            if self.btn_exit.is_clicked(event):
+                pygame.quit()
+                sys.exit()
+
         # Si no estamos pausados, el jugador recibe inputs
         if self.player and not self.paused:
             self.player.handle_event(event)
@@ -74,8 +94,8 @@ class GameplayScene(Scene):
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
             
-            # --- NUEVO: Alternar Pausa con ENTER ---
-            elif event.key == pygame.K_RETURN: # K_RETURN es la tecla Enter
+            # --- Alternar Pausa con ENTER ---
+            elif event.key == pygame.K_RETURN: 
                 self.paused = not self.paused
                 
             elif event.key == pygame.K_F3:
@@ -86,9 +106,13 @@ class GameplayScene(Scene):
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
         self.dt = min(raw_dt, 3.0)
         
-        # --- NUEVO: Lógica de Pausa ---
+        # --- Lógica de Pausa ---
         if self.paused:
-            return # Si está pausado, no actualizamos NADA del juego
+            # Actualizamos hover de botones aunque no haya eventos (para feedback visual constante)
+            mouse_pos = self.game.get_mouse_pos()
+            self.btn_continue.update(mouse_pos)
+            self.btn_exit.update(mouse_pos)
+            return 
         # -----------------------------
         
         if not self.player or not self.player.is_alive:
@@ -236,17 +260,21 @@ class GameplayScene(Scene):
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
-        # --- NUEVO: Renderizado de Pausa ---
+        # --- RENDERIZADO DE PAUSA ---
         if self.paused:
             # Capa oscura
             overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 150)) # Negro semitransparente
+            overlay.fill((0, 0, 0, 180)) # Negro semitransparente más oscuro
             self.screen.blit(overlay, (0, 0))
             
             # Texto
             text = self.font_pause.render("PAUSA", True, WHITE)
-            rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
+            rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 80))
             self.screen.blit(text, rect)
+            
+            # Botones
+            self.btn_continue.draw(self.screen)
+            self.btn_exit.draw(self.screen)
         
         if self.show_debug:
             self._render_debug_info(enemies_rendered)
@@ -305,11 +333,9 @@ class GameplayScene(Scene):
             "F3: Toggle Debug"
         ]
         
-        # --- CAMBIO: Bajamos el texto a y=110 para no tapar el HUD ---
         y = 110 
         for text in debug_texts:
             surf = font.render(text, True, (0, 255, 0))
-            # Pequeña sombra negra para que se lea mejor sobre el fondo
             self.screen.blit(font.render(text, True, (0, 0, 0)), (11, y + 1))
             self.screen.blit(surf, (10, y))
             y += 25
