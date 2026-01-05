@@ -1,11 +1,9 @@
 """
-Escena de Gameplay con CONTROL DE PARTÍCULAS AGRESIVO
+Escena de Gameplay con PAUSA y DEBUG corregido
 """
-import pygame
-import math
-import random
+import pygame, math, random
 from scenes.scene import Scene
-from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
+from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE
 from entities.player import Player
 from entities.particle import ParticleSystem
 from entities.weapon import LaserWeapon
@@ -21,7 +19,7 @@ class GameplayScene(Scene):
         
         # ========== POOLS OPTIMIZADOS ==========
         self.projectile_pool = ProjectilePool(initial_size=500)
-        self.particle_pool = ParticlePool(capacity=800)  # Reducido a 800
+        self.particle_pool = ParticlePool(capacity=800)
         
         self.spatial_grid = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         
@@ -41,10 +39,12 @@ class GameplayScene(Scene):
         
         self.frame_counter = 0
         self.show_debug = False
+        
+        # --- NUEVO: Estado de Pausa ---
+        self.paused = False
+        self.font_pause = pygame.font.Font(None, 80)
 
         self.particles_rendered = 0
-        
-        # --- NUEVO: Contador de impactos para limitar sangre ---
         self.hit_particle_cooldown = 0
     
     def on_enter(self):
@@ -62,21 +62,34 @@ class GameplayScene(Scene):
         self.score = 0
         self.dt = 1.0
         self.hit_particle_cooldown = 0
+        self.paused = False
     
     def handle_events(self, event):
-        if self.player:
+        # Si no estamos pausados, el jugador recibe inputs
+        if self.player and not self.paused:
             self.player.handle_event(event)
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
+            
+            # --- NUEVO: Alternar Pausa con ENTER ---
+            elif event.key == pygame.K_RETURN: # K_RETURN es la tecla Enter
+                self.paused = not self.paused
+                
             elif event.key == pygame.K_F3:
                 self.show_debug = not self.show_debug
     
     def update(self):
+        # Calculamos dt siempre para mantener el reloj fluido
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
         self.dt = min(raw_dt, 3.0)
+        
+        # --- NUEVO: Lógica de Pausa ---
+        if self.paused:
+            return # Si está pausado, no actualizamos NADA del juego
+        # -----------------------------
         
         if not self.player or not self.player.is_alive:
             from scenes.game_over import GameOverScene
@@ -87,13 +100,10 @@ class GameplayScene(Scene):
         enemy_count = len(self.enemies)
 
         if enemy_count < 50:
-            # Calidad ALTA: Todo activado, goteo, explosiones grandes
             self.particle_system.set_quality(2)
         elif enemy_count < 150:
-            # Calidad MEDIA: Sin goteo, explosiones normales
             self.particle_system.set_quality(1)
         else:
-            # Calidad BAJA: Mínimo indispensable para feedback visual
             self.particle_system.set_quality(0)
         
         keys = pygame.key.get_pressed()
@@ -114,7 +124,6 @@ class GameplayScene(Scene):
             if enemy.is_alive:
                 self.spatial_grid.insert(enemy)
         
-        # --- Actualizar cooldown de partículas ---
         if self.hit_particle_cooldown > 0:
             self.hit_particle_cooldown -= 1 * self.dt
         
@@ -128,15 +137,13 @@ class GameplayScene(Scene):
                         start, end = beam
                         for enemy in self.enemies[:]:
                             if enemy.rect.clipline(start, end):
-                                # Láser NO genera partículas por impacto (demasiadas)
-                                # Solo flash visual del enemigo
                                 if enemy.take_damage(weapon.damage):
                                     self.score += enemy.points
                                     self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
                                     if enemy in self.enemies: 
                                         self.enemies.remove(enemy)
         
-        # ========== PROYECTILES CON CONTROL DE PARTÍCULAS ==========
+        # ========== PROYECTILES ==========
         for projectile in self.projectile_pool.active[:]:
             projectile.update(self.dt)
             
@@ -145,8 +152,6 @@ class GameplayScene(Scene):
             if hit_enemy:
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 
-                # --- NUEVO: LIMITAR PARTÍCULAS DE IMPACTO ---
-                # Solo genera sangre si el cooldown global terminó
                 if self.hit_particle_cooldown <= 0:
                     p_speed_sq = projectile.vel_x * projectile.vel_x + projectile.vel_y * projectile.vel_y
                     direction = None
@@ -154,19 +159,17 @@ class GameplayScene(Scene):
                         inv_speed = 1.0 / math.sqrt(p_speed_sq)
                         direction = (projectile.vel_x * inv_speed, projectile.vel_y * inv_speed)
 
-                    # Llamamos con un count base, el sistema lo multiplicará si la calidad es alta
                     self.particle_system.create_blood_splatter(
                         hit_enemy.x, hit_enemy.y, 
                         direction_vector=direction, 
                         force=1.2,
-                        count=4 # Base count (en High se multiplicará x3 = 12 partículas)
+                        count=4
                     )
                     
-                    # Ajustar cooldown global según congestión
                     if self.particle_system.quality == 2:
-                        self.hit_particle_cooldown = 2 # Muy frecuente
+                        self.hit_particle_cooldown = 2
                     else:
-                        self.hit_particle_cooldown = 5 # Menos frecuente para ahorrar CPU
+                        self.hit_particle_cooldown = 5
 
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
@@ -209,7 +212,6 @@ class GameplayScene(Scene):
             if hasattr(weapon, 'render'):
                 weapon.render(self.screen, self.camera)
 
-        # CAPTURAMOS EL RETORNO AQUÍ
         self.particles_rendered = self.particle_pool.render_all(self.screen, self.camera)
         
         for projectile in self.projectile_pool.active:
@@ -231,6 +233,18 @@ class GameplayScene(Scene):
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
+        # --- NUEVO: Renderizado de Pausa ---
+        if self.paused:
+            # Capa oscura
+            overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 150)) # Negro semitransparente
+            self.screen.blit(overlay, (0, 0))
+            
+            # Texto
+            text = self.font_pause.render("PAUSA", True, WHITE)
+            rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
+            self.screen.blit(text, rect)
+        
         if self.show_debug:
             self._render_debug_info(enemies_rendered)
 
@@ -240,11 +254,12 @@ class GameplayScene(Scene):
         start_y = self.camera.offset_y % grid_size
         grid_color = (30, 30, 30)
         
-        for x in range(start_x, WINDOW_WIDTH, grid_size):
+        for x in range(int(start_x), WINDOW_WIDTH, grid_size):
             pygame.draw.line(self.screen, grid_color, (x, 0), (x, WINDOW_HEIGHT))
-        for y in range(start_y, WINDOW_HEIGHT, grid_size):
+        for y in range(int(start_y), WINDOW_HEIGHT, grid_size):
             pygame.draw.line(self.screen, grid_color, (0, y), (WINDOW_WIDTH, y))
             
+        # Bordes del mundo
         line_x = self.camera.offset_x
         if 0 <= line_x <= WINDOW_WIDTH:
             pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
@@ -276,22 +291,22 @@ class GameplayScene(Scene):
         fps = self.clock.get_fps()
         dt_ms = self.dt * (1000.0 / self.target_fps)
         
-        # Partículas procesadas por física (CPU)
         active_particles = sum(1 for p in self.particle_pool.pool if p.is_alive)
         
         debug_texts = [
             f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
             f"Enemigos: {len(self.enemies)} (Visibles: {enemies_rendered})",
             f"Proyectiles: {len(self.projectile_pool.active)}",
-            # AQUI EL CAMBIO: Mostramos Activas vs Realmente Dibujadas
             f"Partículas: {active_particles} (Visibles: {self.particles_rendered}) / {self.particle_pool.capacity}",
-            f"Puntuación: {self.score}",
+            f"Pausa: {'SÍ' if self.paused else 'NO'}",
             "F3: Toggle Debug"
         ]
         
-        y = 10
+        # --- CAMBIO: Bajamos el texto a y=110 para no tapar el HUD ---
+        y = 110 
         for text in debug_texts:
             surf = font.render(text, True, (0, 255, 0))
+            # Pequeña sombra negra para que se lea mejor sobre el fondo
             self.screen.blit(font.render(text, True, (0, 0, 0)), (11, y + 1))
             self.screen.blit(surf, (10, y))
             y += 25

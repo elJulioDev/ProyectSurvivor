@@ -18,8 +18,15 @@ class HUD:
         
     def render(self, player, wave=1, score=0, enemies_alive=0):
         """Renderiza el HUD completo"""
-        # Actualizar animación de score
-        self.score_display += (score - self.score_display) * self.score_lerp_speed
+        
+        # --- CORRECCIÓN: Animación de score ---
+        # Si la diferencia es pequeña (< 0.5), saltamos directamente al valor final
+        # Esto evita el error de "259 vs 260"
+        diff = score - self.score_display
+        if abs(diff) < 0.5:
+            self.score_display = score
+        else:
+            self.score_display += diff * self.score_lerp_speed
         
         # Panel superior izquierdo
         self._render_player_panel(player)
@@ -91,7 +98,7 @@ class HUD:
         self.screen.blit(shadow, shadow_rect)
         self.screen.blit(health_text, text_rect)
         
-        # --- NUEVO: Barra de Dash / Energía ---
+        # --- Barra de Dash / Energía ---
         dash_progress = 1.0
         if player.dash_cooldown > 0:
             dash_progress = 1.0 - (player.dash_cooldown_timer / player.dash_cooldown)
@@ -107,12 +114,8 @@ class HUD:
         # Barra dash
         pygame.draw.rect(self.screen, dash_color, (panel_x + 55, panel_y + 65, dash_bar_width, 6), border_radius=3)
         
-        # --- Barra de Escudo (Inmunidad por Daño) ---
-        # Solo se dibuja si REALMENTE tiene frames de inmunidad por haber sido golpeado
         if player.invulnerable_frames > 0:
-            shield_text = self.font_tiny.render("ESCUDO", True, CYAN)
-            # Dibujamos esto encima del dash momentáneamente o en otro lugar
-            # Para simplificar, lo superponemos con un color brillante si está activo
+            # Indicador visual simple de inmunidad
             pygame.draw.rect(self.screen, (255, 255, 255), (panel_x + 55, panel_y + 65, panel_width - 70, 6), 1, border_radius=3)
 
     def _render_stats_panel(self, wave, score, enemies_alive):
