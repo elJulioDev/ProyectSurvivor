@@ -64,10 +64,11 @@ class HUD:
         controls = [
             "WASD / Flechas: Mover",
             "Mouse: Apuntar",
+            "Click Izq: Disparar",
             "ESC: Menú"
         ]
         
-        y_offset = self.screen.get_height() - 80
+        y_offset = self.screen.get_height() - 100
         for i, control in enumerate(controls):
             text = self.font_small.render(control, True, GRAY)
             self.screen.blit(text, (20, y_offset + i * 20))

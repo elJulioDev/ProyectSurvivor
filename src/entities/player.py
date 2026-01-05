@@ -94,6 +94,11 @@ class Player:
     def heal(self, amount):
         """Cura al jugador"""
         self.health = min(self.max_health, self.health + amount)
+
+    def shoot(self):
+        """Dispara un proyectil"""
+        from entities.projectile import Projectile
+        return Projectile(self.x, self.y, self.angle)
     
     def render(self, screen):
         """Renderiza el jugador"""
