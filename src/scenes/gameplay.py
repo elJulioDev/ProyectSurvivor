@@ -5,13 +5,16 @@ Escena de Gameplay COMPLETAMENTE OPTIMIZADA
 - Spatial Grid (colisiones O(1))
 - Logic Culling (actualizar solo lo visible)
 - Surface Caching (partículas pre-renderizadas)
+- SISTEMA DE DISPARO MANUAL (Top-Down Shooter)
 """
 import pygame
 import math
+import random
 from scenes.scene import Scene
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
 from entities.player import Player
 from entities.particle import ParticleSystem
+from entities.weapon import LaserWeapon # Import necesario para lógica específica
 from ui.hud import HUD
 from utils.wave_manager import WaveManager
 from utils.camera import Camera
@@ -82,9 +85,7 @@ class GameplayScene(Scene):
     
     def update(self):
         # ========== CALCULAR DELTATIME ==========
-        # dt = 1.0 a 60fps, dt = 2.0 a 30fps, dt = 0.5 a 120fps
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
-        # Clamp para evitar saltos enormes (ej. Alt+Tab)
         self.dt = min(raw_dt, 3.0)
         
         if not self.player or not self.player.is_alive:
@@ -94,12 +95,17 @@ class GameplayScene(Scene):
         
         keys = pygame.key.get_pressed()
         mouse_pos = pygame.mouse.get_pos()
+        mouse_pressed = pygame.mouse.get_pressed() # Detectar clics del mouse
         
         # ========== ACTUALIZAR JUGADOR ==========
         self.player.handle_input(keys, self.dt)
         self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
         self.player.update(self.dt)
         
+        # ========== DISPARO MANUAL (CLIC IZQUIERDO) ==========
+        if mouse_pressed[0]: # [0] es clic izquierdo
+            self.player.attack()
+
         # ========== ACTUALIZAR CÁMARA ==========
         self.camera.update(self.player, mouse_pos)
         
@@ -109,36 +115,46 @@ class GameplayScene(Scene):
             if enemy.is_alive:
                 self.spatial_grid.insert(enemy)
         
-        # ========== ACTUALIZAR ARMAS ==========
+        # ========== ACTUALIZAR ARMAS Y LÓGICA DE DAÑO ==========
         for weapon in self.player.weapons:
-            points_gained = weapon.update(
-                self.enemies, 
-                particle_system=self.particle_system, 
-                dt=self.dt,
-                spatial_grid=self.spatial_grid
-            )
-            if points_gained > 0:
-                self.score += points_gained
+            # Actualizar Cooldowns (y rotación orbital)
+            weapon.update(dt=self.dt)
+
+            # CASO ESPECIAL: Láser (Hitscan instantáneo)
+            if isinstance(weapon, LaserWeapon):
+                # Si el láser acaba de dispararse (draw_timer alto)
+                if weapon.draw_timer >= weapon.duration - 1:
+                    beam = weapon.get_beam_info()
+                    if beam:
+                        start, end = beam
+                        # Verificar colisión con todos los enemigos (Hitscan)
+                        # Se podría optimizar con raycast en grid, pero iterar es rápido para <500 enemigos
+                        for enemy in self.enemies[:]:
+                            if enemy.rect.clipline(start, end):
+                                self.particle_system.create_blood_splatter(enemy.x, enemy.y, count=5)
+                                if enemy.take_damage(weapon.damage):
+                                    self.score += enemy.points
+                                    self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
+                                    if enemy in self.enemies: self.enemies.remove(enemy)
+
         
         # ========== ACTUALIZAR PROYECTILES (POOL) ==========
+        # Wand y Shotgun usan proyectiles físicos
         for projectile in self.projectile_pool.active[:]:
             projectile.update(self.dt)
             
-            # ========== COLISIONES CON GRID ESPACIAL ==========
+            # Colisiones con Grid Espacial
             hit_enemy = projectile.check_collision_grid(self.spatial_grid)
             
             if hit_enemy:
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 
-                # Dirección del impacto
+                # Dirección del impacto para la sangre
                 p_speed_sq = projectile.vel_x * projectile.vel_x + projectile.vel_y * projectile.vel_y
+                direction = None
                 if p_speed_sq > 0.01:
                     inv_speed = 1.0 / math.sqrt(p_speed_sq)
-                    dir_x = projectile.vel_x * inv_speed
-                    dir_y = projectile.vel_y * inv_speed
-                    direction = (dir_x, dir_y)
-                else:
-                    direction = None
+                    direction = (projectile.vel_x * inv_speed, projectile.vel_y * inv_speed)
 
                 self.particle_system.create_blood_splatter(
                     hit_enemy.x, hit_enemy.y, 
@@ -161,19 +177,15 @@ class GameplayScene(Scene):
             self.enemies.append(new_enemy)
         
         # ========== ACTUALIZAR ENEMIGOS (CON LOGIC CULLING) ==========
-        viewport_margin = 200  # Margen para seguir actualizando fuera de pantalla
+        viewport_margin = 200
         
         for enemy in self.enemies[:]:
-            # ========== LOGIC CULLING ==========
-            # Si está MUY lejos, solo actualizar posición básica
             dist_sq_to_player = enemy.get_distance_squared_to(self.player.x, self.player.y)
             max_update_dist_sq = (WINDOW_WIDTH + viewport_margin) ** 2
             
             if dist_sq_to_player > max_update_dist_sq:
-                # Enemigo muy lejos: solo mover hacia jugador (sin sangrado, sin ataque)
                 enemy.move_towards_player(self.player.get_position(), self.dt)
             else:
-                # Enemigo cerca: actualización completa
                 enemy.move_towards_player(self.player.get_position(), self.dt)
                 enemy.update(self.particle_system, self.dt)
                 enemy.attack(self.player)
@@ -193,20 +205,20 @@ class GameplayScene(Scene):
 
         # ========== RENDERIZADO OPTIMIZADO (Con Culling) ==========
         
-        # 1. Armas Físicas
+        # 1. Armas Físicas y Láser
         for weapon in self.player.weapons:
             if hasattr(weapon, 'render'):
                 weapon.render(self.screen, self.camera)
         
-        # 2. Partículas (El pool ya optimiza con cache)
+        # 2. Partículas
         self.particle_pool.render_all(self.screen, self.camera)
         
-        # 3. Proyectiles (Solo visibles)
+        # 3. Proyectiles
         for projectile in self.projectile_pool.active:
             if self.camera.is_on_screen(projectile.rect):
                 projectile.render(self.screen, self.camera)
         
-        # 4. Enemigos (Solo visibles)
+        # 4. Enemigos
         enemies_rendered = 0
         for enemy in self.enemies:
             if self.camera.is_on_screen(enemy.rect):
@@ -224,12 +236,11 @@ class GameplayScene(Scene):
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
-        # ========== DEBUG INFO ==========
+        # DEBUG
         if self.show_debug:
             self._render_debug_info(enemies_rendered)
 
     def _render_grid(self):
-        """Grid optimizado"""
         grid_size = 100
         start_x = self.camera.offset_x % grid_size
         start_y = self.camera.offset_y % grid_size
@@ -268,9 +279,7 @@ class GameplayScene(Scene):
         self.screen.blit(surf, (0, 0))
     
     def _render_debug_info(self, enemies_rendered):
-        """Muestra información de rendimiento"""
         font = pygame.font.Font(None, 24)
-        
         fps = self.clock.get_fps()
         dt_ms = self.dt * (1000.0 / self.target_fps)
         
@@ -286,7 +295,6 @@ class GameplayScene(Scene):
         y = 10
         for text in debug_texts:
             surf = font.render(text, True, (0, 255, 0))
-            # Sombra
             self.screen.blit(font.render(text, True, (0, 0, 0)), (11, y + 1))
             self.screen.blit(surf, (10, y))
             y += 25

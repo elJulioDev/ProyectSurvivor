@@ -7,7 +7,7 @@ from settings import (
     PLAYER_SIZE, PLAYER_SPEED, PLAYER_ACCEL, PLAYER_FRICTION,
     WHITE, WORLD_WIDTH, WORLD_HEIGHT
 )
-from entities.weapon import WandWeapon, ShotgunWeapon, OrbitalWeapon, LaserWeapon
+from entities.weapon import PistolWeapon, ShotgunWeapon, LaserWeapon, AssaultRifleWeapon
 
 class Player:
     def __init__(self, x, y):
@@ -32,10 +32,7 @@ class Player:
         self.invulnerable_frames = 0
 
         self.weapons = []
-        self.weapons.append(ShotgunWeapon(self))
-        #self.weapons.append(WandWeapon(self))
-        #self.weapons.append(OrbitalWeapon(self))
-        #self.weapons.append(LaserWeapon(self))
+        self.weapons.append(AssaultRifleWeapon(self))
         
         hitbox_size = self.size - 4
         self.rect = pygame.Rect(
@@ -199,7 +196,15 @@ class Player:
     
     def heal(self, amount):
         self.health = min(self.max_health, self.health + amount)
-    
+
+    def attack(self):
+        """Intenta disparar todas las armas equipadas"""
+        if not self.is_alive or self.dash_active:
+            return
+
+        for weapon in self.weapons:
+            weapon.shoot() # El arma gestiona su propio cooldown
+
     def render(self, screen, camera):
         if not self.is_alive:
             return

@@ -11,7 +11,7 @@ from settings import (
 
 class Enemy:
     TYPES = {
-        'small': {'size_mult': 0.7, 'health': 30, 'speed_mult': 1.3, 'damage': 5, 'color': (255, 100, 100), 'points': 5},
+        'small': {'size_mult': 0.7, 'health': 30, 'speed_mult': 1.1, 'damage': 5, 'color': (255, 100, 100), 'points': 5},
         'normal': {'size_mult': 1.0, 'health': 50, 'speed_mult': 1.0, 'damage': 10, 'color': (255, 50, 50), 'points': 10},
         'large': {'size_mult': 1.5, 'health': 80, 'speed_mult': 0.7, 'damage': 15, 'color': (200, 0, 0), 'points': 20},
         'tank': {'size_mult': 2.0, 'health': 150, 'speed_mult': 0.5, 'damage': 20, 'color': (150, 0, 0), 'points': 30}
@@ -30,6 +30,9 @@ class Enemy:
         self.max_health = type_data['health']
         self.health = self.max_health
         self.points = type_data['points']
+
+        self.hitbox_padding = 10 # El enemigo es 10px más gordo invisiblemente
+        hitbox_total = self.size + self.hitbox_padding
         
         self.bleed_timer = 0
         self.bleed_intensity = 0
@@ -45,10 +48,10 @@ class Enemy:
         self.damage_flash = 0
         
         self.rect = pygame.Rect(
-            self.x - self.size // 2,
-            self.y - self.size // 2,
-            self.size,
-            self.size
+            self.x - hitbox_total // 2,
+            self.y - hitbox_total // 2,
+            hitbox_total,
+            hitbox_total
         )
         
         # Cache para optimización de distancia
@@ -84,8 +87,9 @@ class Enemy:
         if abs(self.knockback_x) < 0.1: self.knockback_x = 0
         if abs(self.knockback_y) < 0.1: self.knockback_y = 0
         
-        self.rect.x = self.x - self.size // 2
-        self.rect.y = self.y - self.size // 2
+        hitbox_total = self.size + self.hitbox_padding
+        self.rect.x = int(self.x - hitbox_total // 2)
+        self.rect.y = int(self.y - hitbox_total // 2)
     
     def get_distance_squared_to(self, x, y):
         """Retorna distancia al cuadrado (más rápido que distancia real)"""

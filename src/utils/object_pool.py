@@ -4,6 +4,7 @@ Sistema de Object Pooling para reutilizar objetos costosos
 import pygame
 from entities.projectile import Projectile
 from entities.particle import Particle
+from settings import WINDOW_HEIGHT, WINDOW_WIDTH
 
 class ProjectilePool:
     """Pool de proyectiles pre-instanciados"""
@@ -70,11 +71,11 @@ class ProjectilePool:
 
 class ParticlePool:
     """Pool de partículas con superficies pre-renderizadas"""
-    def __init__(self, initial_size=1000):
+    def __init__(self, initial_size=2000):
         self.pool = []
         self.active = []
         
-        # CACHE DE SUPERFICIES PRE-RENDERIZADAS
+        # CACHE DE SUPERFICIES
         self.cached_surfaces = {}
         self._generate_surface_cache()
         
@@ -105,7 +106,8 @@ class ParticlePool:
                     pygame.draw.circle(surf, (*color, alpha), (size, size), size)
                     self.cached_surfaces[key] = surf
                     
-                    # Cuadrados (chunks)
+                    # Cuadrados (chunks) - NO rotados (rotar en tiempo real es caro)
+                    # Si quieres rotación barata, pre-renderiza 4 ángulos fijos aquí.
                     key_chunk = ('chunk', color, size, alpha)
                     surf_chunk = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                     pygame.draw.rect(surf_chunk, (*color, alpha), (0, 0, size*2, size*2))
@@ -116,22 +118,19 @@ class ParticlePool:
         # Encontrar color más cercano
         color_key = min([(160,0,0), (80,0,0), (180,90,100), (200,20,20)], 
                         key=lambda c: sum((a-b)**2 for a,b in zip(c, color)))
-        
-        # Encontrar tamaño más cercano
         size_key = min([2, 3, 4, 5, 6, 8, 10, 12, 16], key=lambda s: abs(s - size))
-        
-        # Encontrar alpha más cercano
         alpha_key = min([50, 100, 150, 200, 255], key=lambda a: abs(a - alpha))
-        
         key = (shape, color_key, size_key, alpha_key)
         return self.cached_surfaces.get(key)
     
     def get(self, x, y, color, size, lifetime, velocity, gravity=0, friction=0.9, 
             is_chunk=False, is_liquid=True):
-        """Obtiene partícula del pool"""
         if self.pool:
             p = self.pool.pop()
         else:
+            # Si el pool se vacía, no creamos más para proteger FPS
+            # O devolvemos None, o reciclamos la más antigua.
+            # Por ahora, creamos una nueva pero con cuidado.
             p = Particle(0, 0, (255,0,0), 3, 60, (0,0))
         
         # Resetear propiedades
@@ -148,78 +147,91 @@ class ParticlePool:
         p.friction = friction
         p.is_chunk = is_chunk
         p.is_liquid = is_liquid
-        
-        import random
-        p.angle = random.randint(0, 360)
+        p.angle = 0 # Eliminamos rotación aleatoria inicial para simplificar caché
         
         self.active.append(p)
         return p
     
     def return_to_pool(self, particle):
-        """Devuelve partícula al pool"""
         if particle in self.active:
             self.active.remove(particle)
             particle.is_alive = False
             self.pool.append(particle)
     
     def update_all(self, dt):
-        """Actualiza todas las partículas activas"""
-        for p in self.active[:]:
-            # DeltaTime aplicado internamente en Particle.update
+        # Iterar sobre una copia o indice inverso para poder borrar seguro
+        for i in range(len(self.active) - 1, -1, -1):
+            p = self.active[i]
             p.update(dt)
             if not p.is_alive:
                 self.return_to_pool(p)
     
     def render_all(self, screen, camera):
-        """Renderiza usando superficies cacheadas cuando sea posible"""
+        """
+        OPTIMIZACIÓN CRÍTICA:
+        1. Culling: No dibujar si está fuera de pantalla.
+        2. Batch Blits: Usar screen.blits() en lugar de blit() individual.
+        3. Evitar rotaciones en tiempo real.
+        """
+        blit_sequence = []
+        
+        # Pre-cálculo de límites de cámara para Culling rápido
+        cam_x = camera.offset_x
+        cam_y = camera.offset_y
+        
+        # Margen para no cortar partículas en el borde
+        margin = 50 
+        
         for p in self.active:
-            if not p.is_alive:
-                continue
+            # 1. CAMERA CULLING (Lo más importante)
+            # Calculamos posición en pantalla
+            screen_x = p.x + cam_x
+            screen_y = p.y + cam_y
             
-            # Calcular transparencia
+            # Si está fuera de la pantalla, saltar (continue)
+            if not (-margin < screen_x < WINDOW_WIDTH + margin and 
+                    -margin < screen_y < WINDOW_HEIGHT + margin):
+                continue
+
+            # 2. Lógica visual
             life_ratio = p.lifetime / p.max_lifetime
             alpha = int(255 * life_ratio)
             
-            # Determinar si es charco estático
-            speed_sq = p.vel_x * p.vel_x + p.vel_y * p.vel_y
-            is_static_puddle = (speed_sq < 0.01 and p.is_liquid and not p.is_chunk)
-            
-            if is_static_puddle:
+            # Optimización: si es casi transparente, no dibujar
+            if alpha < 5: 
+                continue
+
+            # Determinar tamaño
+            # Pequeña optimización: evitar sqrt en el bucle de render si es posible
+            if p.is_liquid and not p.is_chunk and abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1:
                 current_size = p.size
             else:
                 current_size = max(1, int(p.original_size * life_ratio))
             
-            screen_pos = camera.apply_coords(p.x, p.y)
-            
-            # Intentar usar superficie cacheada
+            # 3. Obtener Superficie Cacheada
             shape = 'chunk' if p.is_chunk else 'circle'
-            cached = self.get_cached_surface(shape, p.color, current_size, alpha)
+            surf = self.get_cached_surface(shape, p.color, current_size, alpha)
             
-            if cached:
-                # Usar superficie pre-renderizada (MÁS RÁPIDO)
-                if p.is_chunk:
-                    rotated = pygame.transform.rotate(cached, p.angle)
-                    screen.blit(rotated, 
-                              (int(screen_pos[0] - rotated.get_width()//2), 
-                               int(screen_pos[1] - rotated.get_height()//2)))
-                else:
-                    screen.blit(cached, 
-                              (int(screen_pos[0] - current_size), 
-                               int(screen_pos[1] - current_size)))
+            if surf:
+                # OPTIMIZACIÓN: Eliminé la rotación en tiempo real para los chunks.
+                # Rotar 2000 sprites por frame mata la CPU. 
+                # Si necesitas rotación, pre-renderiza 4 ángulos en el init.
+                
+                # Centrar
+                dest_x = int(screen_x - surf.get_width() // 2)
+                dest_y = int(screen_y - surf.get_height() // 2)
+                
+                # Añadir a la lista de dibujo masivo
+                blit_sequence.append((surf, (dest_x, dest_y)))
             else:
-                # Fallback: renderizado dinámico (más lento)
-                surf = pygame.Surface((current_size * 2, current_size * 2), pygame.SRCALPHA)
-                color_with_alpha = (*p.color, alpha)
-                
-                if p.is_chunk:
-                    pygame.draw.rect(surf, color_with_alpha, (0, 0, current_size*2, current_size*2))
-                    surf = pygame.transform.rotate(surf, p.angle)
-                else:
-                    pygame.draw.circle(surf, color_with_alpha, (current_size, current_size), current_size)
-                
-                screen.blit(surf, (int(screen_pos[0] - current_size), int(screen_pos[1] - current_size)))
-    
+                # Fallback simple (dibujo directo, lento pero seguro)
+                pygame.draw.circle(screen, (*p.color, alpha), (int(screen_x), int(screen_y)), current_size)
+
+        # 4. BATCH DRAW (La magia de Pygame 2)
+        # Dibuja miles de partículas en una sola llamada a C
+        if blit_sequence:
+            screen.blits(blit_sequence)
+
     def clear(self):
-        """Limpia todas las partículas activas"""
         for p in self.active[:]:
             self.return_to_pool(p)

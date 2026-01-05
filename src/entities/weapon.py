@@ -1,9 +1,8 @@
 """
-Sistema de armas optimizado con Object Pooling y Grid Espacial
+Sistema de armas optimizado para Disparo Manual (Top-Down Shooter)
+Estructura limpia: Pistola, Escopeta y Láser.
 """
-import math
-import random
-import pygame
+import math, random, pygame
 
 class Weapon:
     def __init__(self, owner, cooldown=60, damage=10):
@@ -11,217 +10,206 @@ class Weapon:
         self.cooldown = cooldown
         self.current_cooldown = 0
         self.damage = damage
-        self.level = 1
         self.projectile_pool = None
 
     def set_projectile_pool(self, pool):
         """Asigna el pool de proyectiles"""
         self.projectile_pool = pool
 
-    # CORRECCIÓN AQUÍ: Agregado spatial_grid=None para evitar el crash
-    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0, spatial_grid=None):
+    def update(self, dt=1.0):
+        """Gestiona el enfriamiento (Cooldown)"""
         if self.current_cooldown > 0:
             self.current_cooldown -= 1 * dt
             return 0
+        return 0
 
-        if self.activate(target_list, projectile_list):
-            self.current_cooldown = self.cooldown
-        
-        return 0 
-
-    def activate(self, target_list, projectile_list):
+    def shoot(self):
+        """
+        Intenta disparar si el cooldown lo permite.
+        Se llama al hacer clic izquierdo.
+        """
+        if self.current_cooldown <= 0:
+            if self.activate():
+                self.current_cooldown = self.cooldown
+                return True
         return False
 
-class WandWeapon(Weapon):
-    """Dispara al enemigo más cercano usando distancia al cuadrado"""
+    def activate(self):
+        """Lógica específica del disparo (a implementar por los hijos)"""
+        return False
+
+# ==========================================
+# ARMAS DISPONIBLES
+# ==========================================
+
+class PistolWeapon(Weapon):
+    """
+    Arma básica (anteriormente WandWeapon).
+    Dispara un solo proyectil preciso hacia el cursor.
+    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=35, damage=30)
+        # Cooldown bajo para disparo semiautomático rápido
+        super().__init__(owner, cooldown=25, damage=25)
         
-    def activate(self, target_list, projectile_list):
-        if not target_list or not self.projectile_pool:
+    def activate(self):
+        if not self.projectile_pool:
             return False
         
-        # OPTIMIZACIÓN: Buscar enemigo más cercano con distancia al cuadrado
-        closest_enemy = None
-        min_dist_sq = float('inf')
+        angle = self.owner.angle
         
-        px, py = self.owner.x, self.owner.y
+        # Calcular posición de salida (un poco en frente del jugador)
+        spawn_dist = 15
+        px = self.owner.x + math.cos(angle) * spawn_dist
+        py = self.owner.y + math.sin(angle) * spawn_dist
         
-        for enemy in target_list:
-            dx = enemy.x - px
-            dy = enemy.y - py
-            dist_sq = dx*dx + dy*dy  # Sin sqrt!
-            
-            if dist_sq < min_dist_sq:
-                min_dist_sq = dist_sq
-                closest_enemy = enemy
-        
-        if closest_enemy:
-            angle = math.atan2(closest_enemy.y - py, closest_enemy.x - px)
-            
-            # USAR POOL
-            p = self.projectile_pool.get(px, py, angle, speed=9, damage=self.damage, penetration=1)
-            p.color = (0, 255, 255)
-            return True
-        return False
+        # Solicitar proyectil al pool
+        p = self.projectile_pool.get(
+            px, py, 
+            angle, 
+            speed=14,          # Velocidad estándar
+            damage=self.damage, 
+            penetration=1,
+            image_type='circle'
+        )
+        p.color = (0, 255, 255) # Cyan
+        return True
 
 class ShotgunWeapon(Weapon):
-    """Dispara múltiples proyectiles en abanico"""
+    """
+    Escopeta: Dispara abanico de proyectiles.
+    Mejorada para mayor consistencia en los impactos.
+    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=90, damage=15)
-        self.pellets = 5
+        super().__init__(owner, cooldown=55, damage=12) # Daño por perdigón
+        self.pellets = 8    # Aumentado de 5 a 8 para evitar huecos entre balas
+        self.spread = 0.5   # Apertura del abanico (en radianes)
         
-    def activate(self, target_list, projectile_list):
+    def activate(self):
         if not self.projectile_pool:
             return False
         
         base_angle = self.owner.angle
-        spread = 0.5
+        # Pequeña variación aleatoria en el ángulo base para realismo
+        base_angle += random.uniform(-0.05, 0.05)
         
         for i in range(self.pellets):
-            offset = (i - self.pellets // 2) * (spread / self.pellets)
+            # Calcular ángulo de cada perdigón distribuido uniformemente
+            # (i / (self.pellets - 1)) va de 0 a 1
+            if self.pellets > 1:
+                factor = i / (self.pellets - 1)
+                offset = (factor - 0.5) * self.spread
+            else:
+                offset = 0
             
-            # USAR POOL
+            angle = base_angle + offset
+            
+            # Ajuste de posición de salida
+            spawn_dist = 10
+            px = self.owner.x + math.cos(base_angle) * spawn_dist
+            py = self.owner.y + math.sin(base_angle) * spawn_dist
+            
             p = self.projectile_pool.get(
-                self.owner.x, self.owner.y, 
-                base_angle + offset, 
-                speed=12, 
+                px, py, 
+                angle, 
+                speed=15,         # Ligeramente más lento que antes (18->15) para mejorar detección
                 damage=self.damage, 
-                penetration=2, 
-                lifetime=40, 
+                penetration=2,    # Atraviesa 1 enemigo
+                lifetime=45,      # Aumentado (30->45) para compensar velocidad y asegurar rango
                 image_type='square'
             )
-            p.color = (255, 100, 0)
+            # Color naranja fuego
+            p.color = (255, 100 + random.randint(-20, 20), 0)
         return True
 
-class OrbitalWeapon(Weapon):
-    """Orbe que gira alrededor del jugador con colisiones optimizadas"""
-    def __init__(self, owner):
-        super().__init__(owner, cooldown=0, damage=5)
-        self.angle = 0
-        self.radius = 70
-        self.speed = 0.05
-        self.orbit_rect = pygame.Rect(0, 0, 20, 20)
-        
-    # Este ya estaba bien, pero lo incluyo por completitud
-    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0, spatial_grid=None):
-        self.angle += self.speed * dt
-        cx = self.owner.x + math.cos(self.angle) * self.radius
-        cy = self.owner.y + math.sin(self.angle) * self.radius
-        self.orbit_rect.center = (int(cx), int(cy))
-        
-        points_gained = 0
-
-        # LÓGICA: Usar grid si existe, sino usar lista completa (fallback)
-        possible_targets = []
-        if spatial_grid:
-            possible_targets = spatial_grid.query_rect(self.orbit_rect)
-        else:
-            possible_targets = target_list
-        
-        for enemy in possible_targets:
-            if not enemy.is_alive:
-                continue
-            
-            # Verificar distancia al cuadrado antes de rect collision
-            dx = enemy.x - cx
-            dy = enemy.y - cy
-            dist_sq = dx*dx + dy*dy
-            
-            if dist_sq < (self.radius + enemy.size) ** 2:
-                if self.orbit_rect.colliderect(enemy.rect):
-                    if enemy.take_damage(1):
-                        points_gained += enemy.points
-                        if particle_system:
-                            particle_system.create_viscera_explosion(enemy.x, enemy.y)
-                    elif particle_system and random.random() < 0.2:
-                        angle_to_enemy = math.atan2(enemy.y - self.owner.y, enemy.x - self.owner.x)
-                        dir_x = math.cos(angle_to_enemy)
-                        dir_y = math.sin(angle_to_enemy)
-                        
-                        particle_system.create_blood_splatter(
-                            enemy.x, enemy.y, 
-                            direction_vector=(dir_x, dir_y),
-                            count=4
-                        )
-                    
-        return points_gained
-
-    def render(self, screen, camera):
-        center_pos = camera.apply_coords(self.orbit_rect.centerx, self.orbit_rect.centery)
-        owner_pos = camera.apply_coords(self.owner.x, self.owner.y)
-        
-        pygame.draw.circle(screen, (100, 100, 255), center_pos, 10)
-        pygame.draw.line(screen, (50, 50, 150), owner_pos, center_pos, 2)
-
 class LaserWeapon(Weapon):
-    """Láser optimizado con verificación de distancia"""
+    """
+    Láser: Dispara un rayo instantáneo (Hitscan).
+    Visualmente impactante y daño inmediato.
+    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=0, damage=20) 
+        super().__init__(owner, cooldown=45, damage=15) # Daño por tick/disparo
         self.max_range = 800
-        self.hit_interval = 1
-        self.enemy_hit_timers = {}
+        self.duration = 10   # Duración visual del rayo (frames)
+        self.draw_timer = 0
         
-    # CORRECCIÓN AQUÍ: Agregado spatial_grid=None
-    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0, spatial_grid=None):
-        start_pos = (self.owner.x, self.owner.y)
-        end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
-        end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
-        end_pos = (end_x, end_y)
-        
-        points_gained = 0
-        
-        # Decrementar timers
-        for enemy_id in list(self.enemy_hit_timers.keys()):
-            self.enemy_hit_timers[enemy_id] -= 1 * dt
-            if self.enemy_hit_timers[enemy_id] <= 0:
-                del self.enemy_hit_timers[enemy_id]
-        
-        # NOTA: Podrías usar spatial_grid aquí también para optimizar el láser (opcional)
-        # Por ahora usamos target_list para mantenerlo simple y que compile
-        for enemy in target_list:
-            if not enemy.is_alive:
-                continue
-            
-            dx = enemy.x - self.owner.x
-            dy = enemy.y - self.owner.y
-            dist_sq = dx*dx + dy*dy
-            
-            if dist_sq > self.max_range * self.max_range:
-                continue
-            
-            clip = enemy.rect.clipline(start_pos, end_pos)
-            if clip:
-                enemy_id = id(enemy)
-                
-                if enemy_id not in self.enemy_hit_timers or self.enemy_hit_timers[enemy_id] <= 0:
-                    if enemy.take_damage(self.damage):
-                        points_gained += enemy.points
-                        if particle_system:
-                             particle_system.create_viscera_explosion(enemy.x, enemy.y)
-                    else:
-                        dir_x = math.cos(self.owner.angle)
-                        dir_y = math.sin(self.owner.angle)
-                        if particle_system:
-                            particle_system.create_blood_splatter(
-                                clip[0][0], clip[0][1], 
-                                direction_vector=(dir_x, dir_y),
-                                count=3
-                            )
-                    
-                    self.enemy_hit_timers[enemy_id] = self.hit_interval
-        
-        return points_gained
+    def update(self, dt=1.0):
+        super().update(dt)
+        # Reducir temporizador visual
+        if self.draw_timer > 0:
+            self.draw_timer -= 1 * dt
+
+    def activate(self):
+        # Reiniciar temporizador visual
+        self.draw_timer = self.duration
+        return True # Devuelve True para confirmar que disparó
+
+    def get_beam_info(self):
+        """
+        Retorna la tupla (start_pos, end_pos) si el láser está activo.
+        Usado por GameplayScene para calcular colisiones tipo Raycast.
+        """
+        if self.draw_timer > 0:
+            end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
+            end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
+            return (self.owner.x, self.owner.y), (end_x, end_y)
+        return None
 
     def render(self, screen, camera):
-        world_start_x = self.owner.x
-        world_start_y = self.owner.y
-        world_end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
-        world_end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
+        """Renderizado del efecto visual del láser"""
+        if self.draw_timer > 0:
+            # Calcular posiciones en pantalla
+            world_start_x = self.owner.x
+            world_start_y = self.owner.y
+            world_end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
+            world_end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
+            
+            start_pos = camera.apply_coords(world_start_x, world_start_y)
+            end_pos = camera.apply_coords(world_end_x, world_end_y)
+            
+            # Efecto de desvanecimiento (el ancho disminuye con el tiempo)
+            progress = self.draw_timer / self.duration
+            width_core = max(1, int(4 * progress))
+            width_glow = max(2, int(10 * progress))
+            
+            # Dibujar brillo exterior y núcleo interior
+            # Color: Cyan eléctrico / Blanco
+            pygame.draw.line(screen, (0, 100, 100), start_pos, end_pos, width_glow + 4) # Aura oscura
+            pygame.draw.line(screen, (0, 255, 255), start_pos, end_pos, width_glow)     # Brillo
+            pygame.draw.line(screen, (255, 255, 255), start_pos, end_pos, width_core)   # Núcleo
+
+class AssaultRifleWeapon(Weapon):
+    """
+    Rifle de Asalto (AK-47 / M4).
+    Disparo automático rápido con ligera dispersión.
+    """
+    def __init__(self, owner):
+        # Cooldown: 8 frames (aprox 7-8 balas por segundo a 60 FPS)
+        super().__init__(owner, cooldown=8, damage=12)
+        self.spread = 0.15 # Dispersión moderada (menos que la escopeta, más que la pistola)
+
+    def activate(self):
+        if not self.projectile_pool:
+            return False
+
+        # Ángulo base + pequeña variación aleatoria (retroceso)
+        angle = self.owner.angle + random.uniform(-self.spread, self.spread)
+
+        # Posición de salida (cañón del arma)
+        spawn_dist = 20
+        px = self.owner.x + math.cos(angle) * spawn_dist
+        py = self.owner.y + math.sin(angle) * spawn_dist
+
+        # Solicitar proyectil
+        p = self.projectile_pool.get(
+            px, py,
+            angle,
+            speed=17,           # Balas rápidas
+            damage=self.damage,
+            penetration=1,
+            lifetime=50,
+            image_type='square' # Se verán como trazas alargadas
+        )
         
-        start_pos = camera.apply_coords(world_start_x, world_start_y)
-        end_pos = camera.apply_coords(world_end_x, world_end_y)
-        
-        pygame.draw.line(screen, (0, 100, 100), start_pos, end_pos, 15)
-        pygame.draw.line(screen, (0, 255, 255), start_pos, end_pos, 7)
-        pygame.draw.line(screen, (255, 255, 255), start_pos, end_pos, 3)
+        # Color dorado/amarillo bala
+        p.color = (255, 215, 0) 
+        return True

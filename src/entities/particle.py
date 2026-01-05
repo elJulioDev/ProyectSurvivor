@@ -133,7 +133,7 @@ class ParticleSystem:
                 px, py,
                 DARK_BLOOD,
                 size=random.randint(8, 16),
-                lifetime=random.randint(600, 900),
+                lifetime=random.randint(300, 500),
                 velocity=(0, 0),
                 gravity=0,
                 friction=0,

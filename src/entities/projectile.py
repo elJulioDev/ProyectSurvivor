@@ -1,6 +1,3 @@
-"""
-Proyectiles optimizados con DeltaTime y colisiones por grid
-"""
 import pygame
 import math
 from settings import YELLOW, WORLD_WIDTH, WORLD_HEIGHT
@@ -9,14 +6,19 @@ class Projectile:
     __slots__ = (
         'x', 'y', 'angle', 'speed', 'size', 'color', 'damage', 
         'penetration', 'lifetime', 'is_alive', 'image_type', 
-        'hit_enemies', 'vel_x', 'vel_y', 'rect'
+        'hit_enemies', 'vel_x', 'vel_y', 'rect', 'hitbox_size'
     )
     def __init__(self, x, y, angle, speed=10, damage=25, penetration=1, lifetime=120, image_type='circle'):
         self.x = x
         self.y = y
         self.angle = angle
         self.speed = speed
-        self.size = 6
+        
+        # --- CAMBIO 1: Separar visual de físico ---
+        self.size = 6              # Tamaño del DIBUJO (pequeño)
+        self.hitbox_size = 20      # Tamaño del GOLPE (grande, más indulgente)
+        # ------------------------------------------
+
         self.color = YELLOW
         self.damage = damage
         self.penetration = penetration
@@ -29,85 +31,75 @@ class Projectile:
         self.vel_x = math.cos(angle) * speed
         self.vel_y = math.sin(angle) * speed
         
+        # La hitbox usa el tamaño grande
         self.rect = pygame.Rect(
-            self.x - self.size // 2, self.y - self.size // 2,
-            self.size, self.size
+            int(self.x - self.hitbox_size // 2), 
+            int(self.y - self.hitbox_size // 2),
+            self.hitbox_size, 
+            self.hitbox_size
         )
     
     def update(self, dt=1.0):
-        """Actualización con DeltaTime"""
         if not self.is_alive:
             return
         
-        # Movimiento escalado por dt
         self.x += self.vel_x * dt
         self.y += self.vel_y * dt
         
-        self.rect.x = int(self.x - self.size // 2)
-        self.rect.y = int(self.y - self.size // 2)
+        # --- CAMBIO 2: Actualizar rect con el tamaño grande ---
+        self.rect.x = int(self.x - self.hitbox_size // 2)
+        self.rect.y = int(self.y - self.hitbox_size // 2)
+        # ------------------------------------------------------
         
         self.lifetime -= 1 * dt
         if self.lifetime <= 0:
             self.is_alive = False
             
-        # Límites del mundo
         if (self.x < -50 or self.x > WORLD_WIDTH + 50 or
             self.y < -50 or self.y > WORLD_HEIGHT + 50):
             self.is_alive = False
     
     def check_collision_grid(self, spatial_grid):
-        """
-        Colisión optimizada usando grid espacial.
-        En lugar de verificar TODOS los enemigos (O(N)),
-        solo verifica los que están cerca (O(1) promedio).
-        """
         if not self.is_alive:
             return None
         
-        # Obtener solo los enemigos cercanos
-        nearby_enemies = spatial_grid.get_nearby(self.x, self.y, radius=0)
+        # Buscamos enemigos cercanos (radio un poco mayor por si acaso)
+        nearby_enemies = spatial_grid.get_nearby(self.x, self.y, radius=1)
         
         for enemy in nearby_enemies:
             if enemy.is_alive and enemy not in self.hit_enemies:
+                # La colisión ya usa self.rect que es GRANDE (20px)
                 if self.rect.colliderect(enemy.rect):
                     self.hit_enemies.append(enemy)
                     self.penetration -= 1
-                    
                     if self.penetration <= 0:
                         self.is_alive = False
-                    
                     return enemy
         return None
-    
-    def check_collision(self, enemies):
-        """Método legacy para compatibilidad (NO USAR, usar check_collision_grid)"""
-        if not self.is_alive:
-            return None
-        
-        for enemy in enemies:
-            if enemy.is_alive and enemy not in self.hit_enemies:
-                if self.rect.colliderect(enemy.rect):
-                    self.hit_enemies.append(enemy)
-                    self.penetration -= 1
-                    
-                    if self.penetration <= 0:
-                        self.is_alive = False
-                    
-                    return enemy
-        return None
-    
+
+    # (El resto de métodos check_collision y render se mantienen igual, 
+    #  render usará self.size así que visualmente no cambia nada)
     def render(self, screen, camera):
         if not self.is_alive:
             return
             
         screen_pos = camera.apply_coords(self.x, self.y)
-        pos = (int(screen_pos[0]), int(screen_pos[1]))
-        
+        # Validar coordenadas seguras para dibujar
+        try:
+            center = (int(screen_pos[0]), int(screen_pos[1]))
+        except:
+            return
+
         if self.image_type == 'circle':
-            pygame.draw.circle(screen, self.color, pos, self.size)
-            pygame.draw.circle(screen, (255, 255, 200), pos, max(1, self.size // 2))
+            # Dibuja usando self.size (6px) para que se vea nítido
+            pygame.draw.circle(screen, self.color, center, self.size)
+            pygame.draw.circle(screen, (255, 255, 200), center, max(1, self.size // 2))
             
+            # DEBUG: Si quieres ver la hitbox real, descomenta esto:
+            # pygame.draw.rect(screen, (0, 255, 0), (*camera.apply_rect(self.rect).topleft, self.hitbox_size, self.hitbox_size), 1)
+
         elif self.image_type == 'square':
+            # Dibuja el cuadrado visual
             rect_surf = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)
             pygame.draw.rect(rect_surf, self.color, (0, 0, self.size*2, self.size*2))
             rotated_surf = pygame.transform.rotate(rect_surf, self.lifetime * 10)
