@@ -107,7 +107,7 @@ class GameplayScene(Scene):
             self.particle_system.set_quality(0)
         
         keys = pygame.key.get_pressed()
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = self.game.get_mouse_pos()
         mouse_pressed = pygame.mouse.get_pressed()
         
         self.player.handle_input(keys, self.dt)
@@ -208,9 +208,12 @@ class GameplayScene(Scene):
         self.screen.fill(BLACK)
         self._render_grid()
         
-        for weapon in self.player.weapons:
-            if hasattr(weapon, 'render'):
-                weapon.render(self.screen, self.camera)
+        # --- PROTECCIÓN EXTRA ---
+        # Solo intentamos dibujar el arma si el jugador existe
+        if self.player:
+            for weapon in self.player.weapons:
+                if hasattr(weapon, 'render'):
+                    weapon.render(self.screen, self.camera)
 
         self.particles_rendered = self.particle_pool.render_all(self.screen, self.camera)
         

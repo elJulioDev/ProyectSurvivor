@@ -2,13 +2,19 @@
 Configuraciones globales del juego
 """
 
-# Ventana
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 600
+# --- CONFIGURACIÓN DE PANTALLA ---
+# Resolución INTERNA (Diseño del juego)
+# Usaremos 1280x720 (HD) como base. Esto hará que los sprites se vean más grandes.
+BASE_WIDTH = 1280
+BASE_HEIGHT = 720
+
+# Resolución INICIAL de la ventana (Lo que ve el usuario al abrir)
+WINDOW_WIDTH = 1280
+WINDOW_HEIGHT = 720
 
 # Configuración del Mundo
-WORLD_WIDTH = 2400  # 3x ancho pantalla
-WORLD_HEIGHT = 1800 # 3x alto pantalla
+WORLD_WIDTH = 2400
+WORLD_HEIGHT = 1800
 
 FPS = 60
 TITLE = "ProyectSurvivor"
