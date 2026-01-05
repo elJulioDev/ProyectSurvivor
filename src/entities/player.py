@@ -35,7 +35,7 @@ class Player:
 
         # Armas
         self.weapons = []
-        self.weapons.append(ShotgunWeapon(self))
+        self.weapons.append(ShotgunWeapon(self)) 
         
         # Hitbox (más pequeña que el sprite visual)
         hitbox_size = self.size - 4
@@ -92,7 +92,8 @@ class Player:
             self.dash_timer = self.dash_duration
             self.dash_cooldown_timer = self.dash_cooldown
             self.dash_vector = (dx, dy)
-            self.invulnerable_frames = max(self.invulnerable_frames, 15) # Invulnerable al dashear
+            # CORRECCIÓN: Ya no activamos invulnerable_frames aquí para evitar parpadeo y barra de escudo
+            # La inmunidad se gestiona en take_damage
 
     def handle_input(self, keys):
         """Maneja el movimiento normal"""
@@ -151,11 +152,13 @@ class Player:
         if self.invulnerable_frames > 0: self.invulnerable_frames -= 1
     
     def take_damage(self, damage):
-        if not self.is_alive or self.invulnerable_frames > 0:
+        # CORRECCIÓN: Añadimos "or self.dash_active" a la inmunidad
+        if not self.is_alive or self.invulnerable_frames > 0 or self.dash_active:
             return
+            
         self.health -= damage
         self.damage_flash = 15
-        self.invulnerable_frames = 60
+        self.invulnerable_frames = 60 # Solo invulnerabilidad por daño
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
@@ -165,7 +168,7 @@ class Player:
         self.health = min(self.max_health, self.health + amount)
     
     def shoot(self):
-        """Dispara proyectil"""
+        """Dispara proyectil (Legacy)"""
         from entities.projectile import Projectile
         return Projectile(self.x, self.y, self.angle)
     
@@ -174,11 +177,11 @@ class Player:
         if not self.is_alive:
             return
         
-        # Parpadeo durante invulnerabilidad
+        # Parpadeo SÓLO durante invulnerabilidad por daño
         if self.invulnerable_frames > 0 and self.invulnerable_frames % 6 < 3:
             return
         
-        # Efecto visual del Dash (Estela)
+        # Efecto visual del Dash (Estela - se mantiene igual)
         if self.dash_active:
             for i in range(3):
                 ghost_alpha = 100 - i * 30
@@ -194,7 +197,7 @@ class Player:
             flash = int(255 * (self.damage_flash / 15))
             render_color = (255, max(0, 255 - flash), max(0, 255 - flash))
         
-        # Cuerpo principal (pixel blanco)
+        # Cuerpo principal
         main_rect = pygame.Rect(self.x - self.size//2, self.y - self.size//2, self.size, self.size)
         pygame.draw.rect(screen, render_color, main_rect)
         pygame.draw.rect(screen, (200, 200, 200), main_rect, 1)
