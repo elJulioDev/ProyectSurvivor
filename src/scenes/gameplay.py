@@ -114,7 +114,8 @@ class GameplayScene(Scene):
             points_gained = weapon.update(
                 self.enemies, 
                 particle_system=self.particle_system, 
-                dt=self.dt
+                dt=self.dt,
+                spatial_grid=self.spatial_grid
             )
             if points_gained > 0:
                 self.score += points_gained

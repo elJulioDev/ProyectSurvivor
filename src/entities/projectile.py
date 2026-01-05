@@ -6,6 +6,11 @@ import math
 from settings import YELLOW, WORLD_WIDTH, WORLD_HEIGHT
 
 class Projectile:
+    __slots__ = (
+        'x', 'y', 'angle', 'speed', 'size', 'color', 'damage', 
+        'penetration', 'lifetime', 'is_alive', 'image_type', 
+        'hit_enemies', 'vel_x', 'vel_y', 'rect'
+    )
     def __init__(self, x, y, angle, speed=10, damage=25, penetration=1, lifetime=120, image_type='circle'):
         self.x = x
         self.y = y

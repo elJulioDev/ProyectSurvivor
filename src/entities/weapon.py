@@ -12,13 +12,14 @@ class Weapon:
         self.current_cooldown = 0
         self.damage = damage
         self.level = 1
-        self.projectile_pool = None  # Se asigna desde GameplayScene
+        self.projectile_pool = None
 
     def set_projectile_pool(self, pool):
         """Asigna el pool de proyectiles"""
         self.projectile_pool = pool
 
-    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0):
+    # CORRECCIÓN AQUÍ: Agregado spatial_grid=None para evitar el crash
+    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0, spatial_grid=None):
         if self.current_cooldown > 0:
             self.current_cooldown -= 1 * dt
             return 0
@@ -58,7 +59,7 @@ class WandWeapon(Weapon):
         if closest_enemy:
             angle = math.atan2(closest_enemy.y - py, closest_enemy.x - px)
             
-            # USAR POOL en lugar de crear instancia nueva
+            # USAR POOL
             p = self.projectile_pool.get(px, py, angle, speed=9, damage=self.damage, penetration=1)
             p.color = (0, 255, 255)
             return True
@@ -102,16 +103,23 @@ class OrbitalWeapon(Weapon):
         self.speed = 0.05
         self.orbit_rect = pygame.Rect(0, 0, 20, 20)
         
-    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0):
+    # Este ya estaba bien, pero lo incluyo por completitud
+    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0, spatial_grid=None):
         self.angle += self.speed * dt
         cx = self.owner.x + math.cos(self.angle) * self.radius
         cy = self.owner.y + math.sin(self.angle) * self.radius
         self.orbit_rect.center = (int(cx), int(cy))
         
         points_gained = 0
+
+        # LÓGICA: Usar grid si existe, sino usar lista completa (fallback)
+        possible_targets = []
+        if spatial_grid:
+            possible_targets = spatial_grid.query_rect(self.orbit_rect)
+        else:
+            possible_targets = target_list
         
-        # OPTIMIZACIÓN: Solo verificar enemigos que estén cerca del orbe
-        for enemy in target_list:
+        for enemy in possible_targets:
             if not enemy.is_alive:
                 continue
             
@@ -120,7 +128,6 @@ class OrbitalWeapon(Weapon):
             dy = enemy.y - cy
             dist_sq = dx*dx + dy*dy
             
-            # Solo hacer rect collision si está cerca (radio + margen)
             if dist_sq < (self.radius + enemy.size) ** 2:
                 if self.orbit_rect.colliderect(enemy.rect):
                     if enemy.take_damage(1):
@@ -150,12 +157,13 @@ class OrbitalWeapon(Weapon):
 class LaserWeapon(Weapon):
     """Láser optimizado con verificación de distancia"""
     def __init__(self, owner):
-        super().__init__(owner, cooldown=0, damage=4) 
+        super().__init__(owner, cooldown=0, damage=20) 
         self.max_range = 800
         self.hit_interval = 1
         self.enemy_hit_timers = {}
         
-    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0):
+    # CORRECCIÓN AQUÍ: Agregado spatial_grid=None
+    def update(self, target_list, projectile_list=None, particle_system=None, dt=1.0, spatial_grid=None):
         start_pos = (self.owner.x, self.owner.y)
         end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
         end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
@@ -169,19 +177,19 @@ class LaserWeapon(Weapon):
             if self.enemy_hit_timers[enemy_id] <= 0:
                 del self.enemy_hit_timers[enemy_id]
         
+        # NOTA: Podrías usar spatial_grid aquí también para optimizar el láser (opcional)
+        # Por ahora usamos target_list para mantenerlo simple y que compile
         for enemy in target_list:
             if not enemy.is_alive:
                 continue
             
-            # OPTIMIZACIÓN: Verificar si está en rango con distancia al cuadrado primero
             dx = enemy.x - self.owner.x
             dy = enemy.y - self.owner.y
             dist_sq = dx*dx + dy*dy
             
             if dist_sq > self.max_range * self.max_range:
-                continue  # Muy lejos, skip
+                continue
             
-            # Solo hacer clipline si está en rango
             clip = enemy.rect.clipline(start_pos, end_pos)
             if clip:
                 enemy_id = id(enemy)

@@ -12,6 +12,11 @@ GUTS_PINK = (180, 90, 100)
 BRIGHT_RED = (200, 20, 20)
 
 class Particle:
+    __slots__ = (
+        'x', 'y', 'color', 'size', 'original_size', 'lifetime', 
+        'max_lifetime', 'is_alive', 'vel_x', 'vel_y', 
+        'gravity', 'friction', 'is_chunk', 'is_liquid', 'angle'
+    )
     def __init__(self, x, y, color, size, lifetime, velocity, gravity=0, friction=0.9, is_chunk=False, is_liquid=True):
         self.x = x
         self.y = y

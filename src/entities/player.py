@@ -33,6 +33,9 @@ class Player:
 
         self.weapons = []
         self.weapons.append(ShotgunWeapon(self))
+        #self.weapons.append(WandWeapon(self))
+        #self.weapons.append(OrbitalWeapon(self))
+        #self.weapons.append(LaserWeapon(self))
         
         hitbox_size = self.size - 4
         self.rect = pygame.Rect(
