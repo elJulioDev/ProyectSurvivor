@@ -2,7 +2,7 @@ import pygame
 import math
 import random
 from settings import (
-    ENEMY_SIZE, ENEMY_SPEED, ENEMY_COLOR,
+    ENEMY_SIZE, ENEMY_SPEED,
     WORLD_WIDTH, WORLD_HEIGHT,
 )
 
@@ -11,10 +11,10 @@ SPRITE_CACHE = {}
 
 class Enemy:
     TYPES = {
-        'small': {'size_mult': 0.9, 'health': 30, 'speed_mult': 1.1, 'damage': 5, 'color': (255, 100, 100), 'points': 5},
-        'normal': {'size_mult': 1.0, 'health': 50, 'speed_mult': 1.0, 'damage': 10, 'color': (255, 50, 50), 'points': 10},
-        'large': {'size_mult': 1.5, 'health': 80, 'speed_mult': 0.7, 'damage': 15, 'color': (200, 0, 0), 'points': 20},
-        'tank': {'size_mult': 2.0, 'health': 250, 'speed_mult': 0.5, 'damage': 20, 'color': (150, 0, 0), 'points': 30}
+        'small': {'size_mult': 0.9, 'health': 30, 'speed_mult': 1.1, 'damage': 5, 'color': (160, 240, 160), 'points': 5},
+        'normal': {'size_mult': 1.0, 'health': 50, 'speed_mult': 1.0, 'damage': 10, 'color': (70, 160, 70), 'points': 10},
+        'large': {'size_mult': 1.5, 'health': 100, 'speed_mult': 0.7, 'damage': 15, 'color': (30, 100, 30), 'points': 20},
+        'tank': {'size_mult': 2.0, 'health': 250, 'speed_mult': 0.5, 'damage': 20, 'color': (45, 65, 30), 'points': 30}
     }
     
     def __init__(self, x, y, speed_multiplier=1.0, enemy_type='normal'):

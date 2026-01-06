@@ -44,7 +44,7 @@ class PistolWeapon(Weapon):
     Dispara un solo proyectil preciso hacia el cursor.
     """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=15, damage=15)
+        super().__init__(owner, cooldown=15, damage=8)
         
     def activate(self):
         if not self.projectile_pool:
@@ -122,7 +122,7 @@ class LaserWeapon(Weapon):
     """
     def __init__(self, owner):
         super().__init__(owner, cooldown=0, damage=30)
-        self.max_range = 800
+        self.max_range = 1500
         self.duration = 10
         self.draw_timer = 0
         
@@ -177,7 +177,7 @@ class AssaultRifleWeapon(Weapon):
     Disparo automático rápido con ligera dispersión.
     """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=8, damage=19)
+        super().__init__(owner, cooldown=8, damage=20)
         self.spread = 0.1
 
     def activate(self):

@@ -1,13 +1,11 @@
-import pygame
-import sys
-import os
+import pygame, sys, os
 from settings import *
 from game import Game
 
 def main():
     os.environ['SDL_VIDEO_WINDOW_POS'] = "0,0"
     os.environ['SDL_VIDEO_CENTERED'] = '0'
-    
+
     pygame.init()
 
     monitor_info = pygame.display.Info()
