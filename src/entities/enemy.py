@@ -59,23 +59,77 @@ class Enemy:
         # --- NUEVO: Control de sangrado ---
         self.bleed_drip_cooldown = 0  # Evita spam de goteos
     
-    def move_towards_player(self, player_pos, dt=1.0):
+    def move_towards_player(self, player_pos, spatial_grid=None, dt=1.0):
         if not self.is_alive:
             return
         
-        dx = player_pos[0] - self.x
-        dy = player_pos[1] - self.y
-        
-        dist_sq = dx*dx + dy*dy
+        # Vector hacia el jugador (Deseo)
+        target_dx = player_pos[0] - self.x
+        target_dy = player_pos[1] - self.y
+        dist_sq = target_dx*target_dx + target_dy*target_dy
         self._last_dist_sq = dist_sq
         
-        if dist_sq > 1:
+        # Normalizar vector al jugador
+        if dist_sq > 0.01:
             inv_dist = 1.0 / math.sqrt(dist_sq)
-            dx *= inv_dist
-            dy *= inv_dist
+            dir_x = target_dx * inv_dist
+            dir_y = target_dy * inv_dist
+        else:
+            dir_x, dir_y = 0, 0
             
-            self.x += (dx * self.speed + self.knockback_x) * dt
-            self.y += (dy * self.speed + self.knockback_y) * dt
+        # Vector de Separación (Evitar superposición)
+        separation_x = 0
+        separation_y = 0
+        separation_force = 0
+        
+        if spatial_grid:
+            # Buscamos vecinos cercanos (radio pequeño, ej: 30px)
+            # Usamos radius=0 en el grid para solo mirar celda actual y optimizar
+            neighbors = spatial_grid.get_nearby(self.x, self.y, radius=1)
+            count = 0
+            
+            # Radio de "espacio personal"
+            personal_space = self.size * 1.5 
+            personal_space_sq = personal_space ** 2
+            
+            for other in neighbors:
+                if other is self or not other.is_alive:
+                    continue
+                
+                dx = self.x - other.x
+                dy = self.y - other.y
+                d_sq = dx*dx + dy*dy
+                
+                # Si está demasiado cerca, nos empujamos
+                if 0 < d_sq < personal_space_sq:
+                    # Cuanto más cerca, más fuerte el empuje
+                    force = (personal_space_sq / d_sq) - 1
+                    separation_x += dx * force
+                    separation_y += dy * force
+                    count += 1
+            
+            if count > 0:
+                # Promediamos y aplicamos fuerza
+                separation_x /= count
+                separation_y /= count
+        
+        # Combinar vectores
+        # Peso de separación alto para evitar que se junten
+        sep_weight = 1.5 
+        
+        final_dx = dir_x + (separation_x * sep_weight)
+        final_dy = dir_y + (separation_y * sep_weight)
+        
+        # Normalizar el resultado final para no exceder la velocidad máxima
+        final_len_sq = final_dx*final_dx + final_dy*final_dy
+        if final_len_sq > 0.01:
+            inv_len = 1.0 / math.sqrt(final_len_sq)
+            final_dx *= inv_len
+            final_dy *= inv_len
+        
+        # Aplicar movimiento
+        self.x += (final_dx * self.speed + self.knockback_x) * dt
+        self.y += (final_dy * self.speed + self.knockback_y) * dt
         
         decay_factor = self.knockback_decay ** dt
         self.knockback_x *= decay_factor

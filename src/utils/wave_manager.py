@@ -1,6 +1,7 @@
 """
 Gestor de oleadas optimizado
 """
+import math
 from entities.enemy import Enemy
 from settings import ENEMIES_PER_WAVE
 
@@ -21,11 +22,16 @@ class WaveManager:
         self.wave_completed = False
         self.enemies_spawned = 0
         self.enemies_in_wave = ENEMIES_PER_WAVE + (self.current_wave - 1) * 3
+        # Curva de cantidad de enemigos
+        # Antes: Lineal agresiva. Ahora: Un poco más suave al principio
+        base_enemies = ENEMIES_PER_WAVE
+        extra_enemies = int((self.current_wave - 1) * 2.5)
+        self.enemies_in_wave = base_enemies + extra_enemies
         self.spawn_timer = 0
         self.completion_timer = 0
-        
-        # Dificultad progresiva
-        self.spawn_delay = max(20, 60 - self.current_wave * 3)
+        # Límite al spawn rate
+        # No bajar de 15 frames (4 spawns por segundo máximo)
+        self.spawn_delay = max(15, 60 - int(self.current_wave * 1.5))
     
     def update(self, enemies):
         """Actualiza sin bloqueos"""
@@ -42,15 +48,21 @@ class WaveManager:
         # Spawn de enemigos
         if self.enemies_spawned < self.enemies_in_wave:
             self.spawn_timer += 1
-            
             if self.spawn_timer >= self.spawn_delay:
                 self.spawn_timer = 0
                 self.enemies_spawned += 1
                 
-                speed_mult = 1.0 + (self.current_wave - 1) * 0.1
+                # FÓRMULA DE VELOCIDAD LOGARÍTMICA
+                # En lugar de subir infinito, sube rápido al inicio
+                # y luego se estanca.
+                # Oleada 1 = 1.0
+                # Oleada 20 = 1.6
+                # Oleada 100 = 2.2 (Máximo tope)
+                raw_mult = 1.0 + math.log(self.current_wave + 1) * 0.25
+                speed_mult = min(2.2, raw_mult)
+                
                 return Enemy.spawn_random(speed_mult, self.current_wave)
         
-        # Verificar fin de oleada
         elif len(enemies) == 0:
             self.wave_active = False
             self.wave_completed = True

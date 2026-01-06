@@ -101,21 +101,15 @@ class GameplayScene(Scene):
             elif event.key == pygame.K_F3:
                 self.show_debug = not self.show_debug
 
-            # =====================================================
-            # NUEVO: SALTAR OLEADA (DEBUG / PERFORMANCE TEST)
-            # =====================================================
+            # SALTAR OLEADA (DEBUG / PERFORMANCE TEST)
             elif event.key == pygame.K_k:
-                # 1. Limpiamos los enemigos actuales para no sobrecargar
-                # (O puedes dejarlos si quieres probar acumulación extrema, 
-                # pero para probar "oleadas" es mejor limpiar)
+                # Limpiamos los enemigos actuales para no sobrecargar
                 self.enemies.clear()
                 self.spatial_grid.clear()
-                self.projectile_pool.clear() # Opcional: limpiar proyectiles
-                
-                # 2. Forzamos el incremento de la oleada
+                self.projectile_pool.clear()
+                # Forzamos el incremento de la oleada
                 self.wave_manager.current_wave += 1
-                
-                # 3. Iniciamos la nueva oleada inmediatamente
+                # Iniciamos la nueva oleada inmediatamente
                 self.wave_manager.start_wave()
                 
                 print(f"[DEBUG] Oleada saltada. Iniciando Oleada {self.wave_manager.current_wave}")
@@ -125,21 +119,20 @@ class GameplayScene(Scene):
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
         self.dt = min(raw_dt, 3.0)
         
-        # --- Lógica de Pausa ---
+        # Lógica de Pausa
         if self.paused:
             # Actualizamos hover de botones aunque no haya eventos (para feedback visual constante)
             mouse_pos = self.game.get_mouse_pos()
             self.btn_continue.update(mouse_pos)
             self.btn_exit.update(mouse_pos)
             return 
-        # -----------------------------
         
         if not self.player or not self.player.is_alive:
             from scenes.game_over import GameOverScene
             self.next_scene = GameOverScene(self.game, self.score, self.wave_manager.current_wave)
             return
         
-        # ========== CONTROL DE CALIDAD DINÁMICA ==========
+        # CONTROL DE CALIDAD DINÁMICA
         enemy_count = len(self.enemies)
 
         if enemy_count < 50:
@@ -233,10 +226,13 @@ class GameplayScene(Scene):
             dist_sq_to_player = enemy.get_distance_squared_to(self.player.x, self.player.y)
             max_update_dist_sq = (WINDOW_WIDTH + viewport_margin) ** 2
             
+            # Pasamos self.spatial_grid al método de movimiento
             if dist_sq_to_player > max_update_dist_sq:
-                enemy.move_towards_player(self.player.get_position(), self.dt)
+                # Si está muy lejos, no gastamos CPU en separación (spatial_grid=None)
+                enemy.move_towards_player(self.player.get_position(), None, self.dt)
             else:
-                enemy.move_towards_player(self.player.get_position(), self.dt)
+                # Si está cerca, activamos la IA de enjambre con el grid
+                enemy.move_towards_player(self.player.get_position(), self.spatial_grid, self.dt)
                 enemy.update(self.particle_system, self.dt)
                 enemy.attack(self.player)
             
