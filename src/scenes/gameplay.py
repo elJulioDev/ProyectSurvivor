@@ -100,6 +100,25 @@ class GameplayScene(Scene):
                 
             elif event.key == pygame.K_F3:
                 self.show_debug = not self.show_debug
+
+            # =====================================================
+            # NUEVO: SALTAR OLEADA (DEBUG / PERFORMANCE TEST)
+            # =====================================================
+            elif event.key == pygame.K_k:
+                # 1. Limpiamos los enemigos actuales para no sobrecargar
+                # (O puedes dejarlos si quieres probar acumulación extrema, 
+                # pero para probar "oleadas" es mejor limpiar)
+                self.enemies.clear()
+                self.spatial_grid.clear()
+                self.projectile_pool.clear() # Opcional: limpiar proyectiles
+                
+                # 2. Forzamos el incremento de la oleada
+                self.wave_manager.current_wave += 1
+                
+                # 3. Iniciamos la nueva oleada inmediatamente
+                self.wave_manager.start_wave()
+                
+                print(f"[DEBUG] Oleada saltada. Iniciando Oleada {self.wave_manager.current_wave}")
     
     def update(self):
         # Calculamos dt siempre para mantener el reloj fluido
