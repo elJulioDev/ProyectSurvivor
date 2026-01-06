@@ -19,9 +19,6 @@ class HUD:
     def render(self, player, wave=1, score=0, enemies_alive=0):
         """Renderiza el HUD completo"""
         
-        # --- CORRECCIÓN: Animación de score ---
-        # Si la diferencia es pequeña (< 0.5), saltamos directamente al valor final
-        # Esto evita el error de "259 vs 260"
         diff = score - self.score_display
         if abs(diff) < 0.5:
             self.score_display = score
@@ -98,7 +95,7 @@ class HUD:
         self.screen.blit(shadow, shadow_rect)
         self.screen.blit(health_text, text_rect)
         
-        # --- Barra de Dash / Energía ---
+        # Barra de Dash / Energía
         dash_progress = 1.0
         if player.dash_cooldown > 0:
             dash_progress = 1.0 - (player.dash_cooldown_timer / player.dash_cooldown)

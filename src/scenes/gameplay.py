@@ -18,7 +18,7 @@ class GameplayScene(Scene):
     def __init__(self, game):
         super().__init__(game)
         
-        # ========== POOLS OPTIMIZADOS ==========
+        # POOLS OPTIMIZADOS
         self.projectile_pool = ProjectilePool(initial_size=500)
         self.particle_pool = ParticlePool(capacity=800)
         
@@ -41,7 +41,7 @@ class GameplayScene(Scene):
         self.frame_counter = 0
         self.show_debug = False
         
-        # --- NUEVO: Estado de Pausa y Botones ---
+        # Estado de Pausa y Botones
         self.paused = False
         self.font_pause = pygame.font.Font(None, 80)
         self.font_btn = pygame.font.Font(None, 36)
@@ -72,7 +72,6 @@ class GameplayScene(Scene):
         self.paused = False
     
     def handle_events(self, event):
-        # Si estamos pausados, gestionamos los botones
         if self.paused:
             mouse_pos = self.game.get_mouse_pos()
             self.btn_continue.update(mouse_pos)
@@ -85,7 +84,6 @@ class GameplayScene(Scene):
                 pygame.quit()
                 sys.exit()
 
-        # Si no estamos pausados, el jugador recibe inputs
         if self.player and not self.paused:
             self.player.handle_event(event)
 
@@ -94,7 +92,7 @@ class GameplayScene(Scene):
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
             
-            # --- Alternar Pausa con ENTER ---
+            # Alternar Pausa con ENTER
             elif event.key == pygame.K_RETURN: 
                 self.paused = not self.paused
                 
@@ -111,8 +109,6 @@ class GameplayScene(Scene):
                 self.wave_manager.current_wave += 1
                 # Iniciamos la nueva oleada inmediatamente
                 self.wave_manager.start_wave()
-                
-                print(f"[DEBUG] Oleada saltada. Iniciando Oleada {self.wave_manager.current_wave}")
     
     def update(self):
         # Calculamos dt siempre para mantener el reloj fluido
@@ -179,7 +175,7 @@ class GameplayScene(Scene):
                                     if enemy in self.enemies: 
                                         self.enemies.remove(enemy)
         
-        # ========== PROYECTILES ==========
+        # PROYECTILES
         for projectile in self.projectile_pool.active[:]:
             projectile.update(self.dt)
             
@@ -247,7 +243,7 @@ class GameplayScene(Scene):
         self.screen.fill(BLACK)
         self._render_grid()
         
-        # --- PROTECCIÓN EXTRA ---
+        # PROTECCIÓN EXTRA
         # Solo intentamos dibujar el arma si el jugador existe
         if self.player:
             for weapon in self.player.weapons:
@@ -275,7 +271,7 @@ class GameplayScene(Scene):
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
-        # --- RENDERIZADO DE PAUSA ---
+        # RENDERIZADO DE PAUSA
         if self.paused:
             # Capa oscura
             overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)

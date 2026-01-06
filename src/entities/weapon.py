@@ -38,17 +38,12 @@ class Weapon:
         """Lógica específica del disparo (a implementar por los hijos)"""
         return False
 
-# ==========================================
-# ARMAS DISPONIBLES
-# ==========================================
-
 class PistolWeapon(Weapon):
     """
     Arma básica (anteriormente WandWeapon).
     Dispara un solo proyectil preciso hacia el cursor.
     """
     def __init__(self, owner):
-        # Cooldown bajo para disparo semiautomático rápido
         super().__init__(owner, cooldown=15, damage=15)
         
     def activate(self):
@@ -66,12 +61,12 @@ class PistolWeapon(Weapon):
         p = self.projectile_pool.get(
             px, py, 
             angle, 
-            speed=14,          # Velocidad estándar
+            speed=14,
             damage=self.damage, 
             penetration=1,
             image_type='circle'
         )
-        p.color = (0, 255, 255) # Cyan
+        p.color = (0, 255, 255)
         return True
 
 class ShotgunWeapon(Weapon):
@@ -80,9 +75,9 @@ class ShotgunWeapon(Weapon):
     Mejorada para mayor consistencia en los impactos.
     """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=50, damage=20) # Daño por perdigón
-        self.pellets = 8    # Aumentado de 5 a 8 para evitar huecos entre balas
-        self.spread = 0.5   # Apertura del abanico (en radianes)
+        super().__init__(owner, cooldown=50, damage=20)
+        self.pellets = 8
+        self.spread = 0.5
         
     def activate(self):
         if not self.projectile_pool:
@@ -111,13 +106,12 @@ class ShotgunWeapon(Weapon):
             p = self.projectile_pool.get(
                 px, py, 
                 angle, 
-                speed=15,         # Ligeramente más lento que antes (18->15) para mejorar detección
+                speed=15,
                 damage=self.damage, 
-                penetration=2,    # Atraviesa 1 enemigo
-                lifetime=45,      # Aumentado (30->45) para compensar velocidad y asegurar rango
+                penetration=2,
+                lifetime=45,
                 image_type='square'
             )
-            # Color naranja fuego
             p.color = (255, 100 + random.randint(-20, 20), 0)
         return True
 
@@ -127,9 +121,9 @@ class LaserWeapon(Weapon):
     Visualmente impactante y daño inmediato.
     """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=0, damage=30) # Daño por tick/disparo
+        super().__init__(owner, cooldown=0, damage=30)
         self.max_range = 800
-        self.duration = 10   # Duración visual del rayo (frames)
+        self.duration = 10
         self.draw_timer = 0
         
     def update(self, dt=1.0):
@@ -183,9 +177,8 @@ class AssaultRifleWeapon(Weapon):
     Disparo automático rápido con ligera dispersión.
     """
     def __init__(self, owner):
-        # Cooldown: 8 frames (aprox 7-8 balas por segundo a 60 FPS)
-        super().__init__(owner, cooldown=8, damage=18)
-        self.spread = 0.15 # Dispersión moderada (menos que la escopeta, más que la pistola)
+        super().__init__(owner, cooldown=8, damage=19)
+        self.spread = 0.1
 
     def activate(self):
         if not self.projectile_pool:
@@ -203,11 +196,11 @@ class AssaultRifleWeapon(Weapon):
         p = self.projectile_pool.get(
             px, py,
             angle,
-            speed=17,           # Balas rápidas
+            speed=17,
             damage=self.damage,
             penetration=1,
             lifetime=50,
-            image_type='square' # Se verán como trazas alargadas
+            image_type='square'
         )
         
         # Color dorado/amarillo bala

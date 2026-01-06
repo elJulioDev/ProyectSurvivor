@@ -15,7 +15,6 @@ class GameOverScene(Scene):
         self.font_medium = pygame.font.Font(None, 48)
         self.font_small = pygame.font.Font(None, 36)
         
-        # Animación de aparición
         self.fade_alpha = 0
         self.fade_speed = 5
     
@@ -33,14 +32,11 @@ class GameOverScene(Scene):
                 self.next_scene = GameplayScene(self.game)
     
     def update(self):
-        # Fade in
         if self.fade_alpha < 255:
             self.fade_alpha = min(255, self.fade_alpha + self.fade_speed)
     
     def render(self):
         self.screen.fill(BLACK)
-        
-        # Overlay semi-transparente
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, min(180, self.fade_alpha)))
         self.screen.blit(overlay, (0, 0))
@@ -48,7 +44,6 @@ class GameOverScene(Scene):
         if self.fade_alpha < 100:
             return
         
-        # "GAME OVER" con sombra
         shadow = self.font_big.render("GAME OVER", True, (100, 0, 0))
         shadow_rect = shadow.get_rect(center=(WINDOW_WIDTH//2 + 3, 153))
         self.screen.blit(shadow, shadow_rect)
@@ -57,7 +52,6 @@ class GameOverScene(Scene):
         go_rect = game_over_text.get_rect(center=(WINDOW_WIDTH//2, 150))
         self.screen.blit(game_over_text, go_rect)
         
-        # Estadísticas finales
         stats_y = 250
         
         # Puntuación

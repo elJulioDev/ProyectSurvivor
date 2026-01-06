@@ -18,10 +18,8 @@ class Game:
     def update(self):
         self.current_scene.update()
         
-        # --- CORRECCIÓN CLAVE ---
         if self.current_scene.next_scene:
             self.current_scene = self.current_scene.next_scene
-            # IMPORTANTE: Inicializar la nueva escena (crear jugador, enemigos, etc.)
             self.current_scene.on_enter()
     
     def render(self):

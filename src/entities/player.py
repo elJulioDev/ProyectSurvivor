@@ -31,15 +31,14 @@ class Player:
         self.damage_flash = 0
         self.invulnerable_frames = 0
 
-        # --- SISTEMA DE ARMAS ---
-        # Cargamos todas las armas disponibles en el inventario
+        # SISTEMA DE ARMAS
         self.weapons = [
-            PistolWeapon(self),        # Tecla 1
-            ShotgunWeapon(self),       # Tecla 2
-            AssaultRifleWeapon(self),  # Tecla 3
-            LaserWeapon(self)          # Tecla 4
+            PistolWeapon(self),
+            ShotgunWeapon(self),
+            AssaultRifleWeapon(self),
+            LaserWeapon(self)
         ]
-        self.current_weapon_index = 0 # Empezamos con la pistola
+        self.current_weapon_index = 0
         
         hitbox_size = self.size - 4
         self.rect = pygame.Rect(
@@ -66,28 +65,22 @@ class Player:
         if event.type == pygame.KEYDOWN:
             current_time = pygame.time.get_ticks()
             
-            # --- CAMBIO DE ARMAS ---
+            # CAMBIO DE ARMAS
             if event.key == pygame.K_1:
                 self.current_weapon_index = 0
-                print("Arma: Pistola")
             elif event.key == pygame.K_2:
                 self.current_weapon_index = 1
-                print("Arma: Escopeta")
             elif event.key == pygame.K_3:
                 self.current_weapon_index = 2
-                print("Arma: Rifle de Asalto")
             elif event.key == pygame.K_4:
                 self.current_weapon_index = 3
-                print("Arma: Láser")
             
-            # --- CURACIÓN ---
+            # CURACIÓN
             elif event.key == pygame.K_h:
                 self.heal(10)
-                # Efecto visual simple (flash verde) al curarse
-                self.damage_flash = 5 # Usamos el flash existente pero breve
-                # Nota: Podrías cambiar el color del flash en render si self.health sube
+                self.damage_flash = 5
             
-            # --- DASH ---
+            # DASH
             if (event.key in [pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d, 
                               pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT]):
                 

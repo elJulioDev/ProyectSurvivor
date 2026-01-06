@@ -14,20 +14,14 @@ class MenuScene(Scene):
         self.font_title = pygame.font.Font(None, 90)
         self.font_normal = pygame.font.Font(None, 36)
         self.font_small = pygame.font.Font(None, 28)
-        
-        # --- CONTROL DE TIEMPO ---
         self.clock = pygame.time.Clock()
-        self.timer = 0  # Tiempo acumulado para funciones seno/coseno
-        
-        # --- ANIMACIÓN ---
+        self.timer = 0
         self.title_scale = 1.0
-        
-        # Fondo en movimiento
         self.bg_scroll_x = 0
         self.bg_scroll_y = 0
-        self.bg_speed = 0.5  # Velocidad lenta
+        self.bg_speed = 0.5
 
-        # --- BOTONES ---
+        # BOTONES
         self.btn_play = Button(WINDOW_WIDTH // 2, 340, 220, 50, "Iniciar Juego", self.font_normal)
         self.btn_exit = Button(WINDOW_WIDTH // 2, 410, 220, 50, "Salir del Juego", self.font_normal)
     
@@ -74,10 +68,10 @@ class MenuScene(Scene):
     def render(self):
         self.screen.fill(BLACK)
         
-        # 1. RENDERIZAR FONDO (Grid en movimiento)
+        # RENDERIZAR FONDO (Grid en movimiento)
         self._render_background_grid()
         
-        # 2. RENDERIZAR TÍTULO
+        # RENDERIZAR TÍTULO
         title_text = "ProyectSurvivor"
         
         # Color cambiante sutil (Blanco a Cyan suave)
@@ -106,25 +100,23 @@ class MenuScene(Scene):
         subtitle_rect = subtitle.get_rect(center=(WINDOW_WIDTH//2, 210))
         self.screen.blit(subtitle, subtitle_rect)
         
-        # 3. RENDERIZAR BOTONES
+        # RENDERIZAR BOTONES
         self.btn_play.draw(self.screen)
         self.btn_exit.draw(self.screen)
         
-        # 4. CONTROLES (Panel visual)
+        # CONTROLES (Panel visual)
         self._render_controls()
 
     def _render_background_grid(self):
         """Dibuja una cuadrícula que se mueve lentamente"""
         grid_size = 50
-        color = (20, 20, 30) # Gris azulado muy oscuro
+        color = (20, 20, 30)
         
-        # Líneas verticales
         for x in range(int(-grid_size), WINDOW_WIDTH + grid_size, grid_size):
             draw_x = x - int(self.bg_scroll_x)
             if 0 <= draw_x <= WINDOW_WIDTH:
                 pygame.draw.line(self.screen, color, (draw_x, 0), (draw_x, WINDOW_HEIGHT))
                 
-        # Líneas horizontales
         for y in range(int(-grid_size), WINDOW_HEIGHT + grid_size, grid_size):
             draw_y = y - int(self.bg_scroll_y)
             if 0 <= draw_y <= WINDOW_HEIGHT:
@@ -132,14 +124,13 @@ class MenuScene(Scene):
 
     def _render_controls(self):
         """Renderiza la lista de controles en un recuadro limpio"""
-        panel_y = 500 # Bajamos un poco el panel
+        panel_y = 500
         panel_height = 150
         panel_width = 400
         panel_x = (WINDOW_WIDTH - panel_width) // 2
         
-        # Fondo del panel (semi-transparente)
         s = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        s.fill((30, 30, 35, 150)) # Gris oscuro transparente
+        s.fill((30, 30, 35, 150))
         self.screen.blit(s, (panel_x, panel_y))
         
         # Borde decorativo

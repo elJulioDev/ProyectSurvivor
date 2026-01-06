@@ -13,21 +13,15 @@ class Projectile:
         self.y = y
         self.angle = angle
         self.speed = speed
-        
-        # --- CAMBIO 1: Separar visual de físico ---
-        self.size = 6              # Tamaño del DIBUJO (pequeño)
-        self.hitbox_size = 20      # Tamaño del GOLPE (grande, más indulgente)
-        # ------------------------------------------
-
+        self.size = 6
+        self.hitbox_size = 20
         self.color = YELLOW
         self.damage = damage
         self.penetration = penetration
         self.lifetime = lifetime
         self.is_alive = True
         self.image_type = image_type
-        
         self.hit_enemies = []
-        
         self.vel_x = math.cos(angle) * speed
         self.vel_y = math.sin(angle) * speed
         
@@ -46,10 +40,9 @@ class Projectile:
         self.x += self.vel_x * dt
         self.y += self.vel_y * dt
         
-        # --- CAMBIO 2: Actualizar rect con el tamaño grande ---
+        # Actualizar rect con el tamaño grande
         self.rect.x = int(self.x - self.hitbox_size // 2)
         self.rect.y = int(self.y - self.hitbox_size // 2)
-        # ------------------------------------------------------
         
         self.lifetime -= 1 * dt
         if self.lifetime <= 0:
@@ -84,7 +77,6 @@ class Projectile:
             return
             
         screen_pos = camera.apply_coords(self.x, self.y)
-        # Validar coordenadas seguras para dibujar
         try:
             center = (int(screen_pos[0]), int(screen_pos[1]))
         except:
@@ -94,10 +86,6 @@ class Projectile:
             # Dibuja usando self.size (6px) para que se vea nítido
             pygame.draw.circle(screen, self.color, center, self.size)
             pygame.draw.circle(screen, (255, 255, 200), center, max(1, self.size // 2))
-            
-            # DEBUG: Si quieres ver la hitbox real, descomenta esto:
-            # pygame.draw.rect(screen, (0, 255, 0), (*camera.apply_rect(self.rect).topleft, self.hitbox_size, self.hitbox_size), 1)
-
         elif self.image_type == 'square':
             # Dibuja el cuadrado visual
             rect_surf = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)

@@ -5,23 +5,17 @@ from settings import *
 from game import Game
 
 def main():
-    # Centrar ventana y posicionarla en (0,0) para el modo sin bordes
     os.environ['SDL_VIDEO_WINDOW_POS'] = "0,0"
-    os.environ['SDL_VIDEO_CENTERED'] = '0' # Desactivamos centrado automático para usar 0,0
+    os.environ['SDL_VIDEO_CENTERED'] = '0'
     
     pygame.init()
-    
-    # Detectar resolución del monitor
+
     monitor_info = pygame.display.Info()
     monitor_w = monitor_info.current_w
     monitor_h = monitor_info.current_h
-    
-    # --- SOLUCIÓN: Usar NOFRAME en lugar de FULLSCREEN exclusivo ---
-    # Esto crea una "Ventana sin bordes" que no cambia la resolución de tu monitor
     screen = pygame.display.set_mode((monitor_w, monitor_h), pygame.NOFRAME)
-    pygame.display.set_caption("ProyectSurvivor")
+    pygame.display.set_caption(TITLE)
     
-    # Superficie Virtual (HD 1280x720)
     virtual_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
     
     clock = pygame.time.Clock()
@@ -45,12 +39,10 @@ def main():
                 if event.key == pygame.K_F11:
                     fullscreen = not fullscreen
                     if fullscreen:
-                        # Al volver a fullscreen, usamos NOFRAME de nuevo
                         os.environ['SDL_VIDEO_WINDOW_POS'] = "0,0"
                         screen = pygame.display.set_mode((monitor_w, monitor_h), pygame.NOFRAME)
                     else:
-                        # Modo ventana normal
-                        os.environ['SDL_VIDEO_CENTERED'] = '1' # Centrar ventana normal
+                        os.environ['SDL_VIDEO_CENTERED'] = '1'
                         screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.RESIZABLE)
                     needs_rescale = True
 
@@ -59,7 +51,6 @@ def main():
         game.update()
         game.render() 
         
-        # --- LÓGICA DE ESCALADO ---
         if needs_rescale:
             current_w, current_h = screen.get_size()
             

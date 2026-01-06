@@ -53,7 +53,7 @@ class Enemy:
         
         self.bleed_drip_cooldown = 0
         
-        # === AJUSTES DE FÍSICA SOLIDA ===
+        # AJUSTES DE FÍSICA SOLIDA
         # Radio físico real (un poco menos que el visual para permitir solapamiento leve)
         self.radius = self.size * 0.45 
         
@@ -64,9 +64,7 @@ class Enemy:
         if not self.is_alive:
             return
 
-        # ---------------------------------------------------------
-        # 1. MOVIMIENTO BASE (Perseguir)
-        # ---------------------------------------------------------
+        # MOVIMIENTO BASE (Perseguir)
         dx = player_pos[0] - self.x
         dy = player_pos[1] - self.y
         dist_sq = dx*dx + dy*dy
@@ -85,9 +83,7 @@ class Enemy:
         if dist_to_player > attack_range:
             move_speed = self.speed * self.speed_variance
         
-        # ---------------------------------------------------------
-        # 2. COLISIÓN ENTRE ENEMIGOS (Repulsión)
-        # ---------------------------------------------------------
+        # COLISIÓN ENTRE ENEMIGOS (Repulsión)
         push_x = 0
         push_y = 0
         
@@ -119,10 +115,8 @@ class Enemy:
                     push_x += (odx / odist) * push_strength
                     push_y += (ody / odist) * push_strength
 
-        # ---------------------------------------------------------
-        # 3. APLICAR MOVIMIENTO FINAL
-        # ---------------------------------------------------------
-        
+        # APLICAR MOVIMIENTO FINAL
+
         # Movimiento voluntario (hacia jugador) + Empuje de otros (física)
         final_dx = (dir_x * move_speed) + push_x
         final_dy = (dir_y * move_speed) + push_y
@@ -171,7 +165,7 @@ class Enemy:
         if self.damage_flash > 0:
             self.damage_flash -= 1 * dt
         
-        # --- SANGRADO DINÁMICO ---
+        # SANGRADO DINÁMICO
         if self.bleed_timer > 0:
             self.bleed_timer -= 1 * dt
             

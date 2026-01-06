@@ -2,7 +2,7 @@
 Configuraciones globales del juego
 """
 
-# --- CONFIGURACIÓN DE PANTALLA ---
+# CONFIGURACIÓN DE PANTALLA
 # Resolución INTERNA (Diseño del juego)
 # Usaremos 1280x720 (HD) como base. Esto hará que los sprites se vean más grandes.
 BASE_WIDTH = 1280
@@ -43,7 +43,7 @@ ENEMY_SIZE = 20
 ENEMY_SPEED = 2
 ENEMY_COLOR = RED
 ENEMY_DAMAGE = 10
-ENEMY_SPAWN_RATE = 2  # segundos
+ENEMY_SPAWN_RATE = 2
 
 # Juego
 INITIAL_WAVE = 1
