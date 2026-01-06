@@ -194,6 +194,44 @@ class ParticlePool:
             
         return rendered_count # Retornamos la cantidad real dibujada
 
+    def bake_static_blood(self, target_surface):
+        """
+        Transfiere partículas estáticas (líquidos parados) a una superficie permanente
+        y las elimina del pool para liberar rendimiento.
+        """
+        baked_count = 0
+        
+        for p in self.pool:
+            if not p.is_alive:
+                continue
+            
+            # Si es líquido (sangre/guts), NO es un chunk rebotando, y ya casi no se mueve
+            if p.is_liquid and not p.is_chunk:
+                # Verificamos si está quieto (velocidad muy baja)
+                if abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1:
+                    
+                    # Obtenemos su gráfico del caché
+                    # Usamos alpha 255 (u otro valor) para que quede bien marcado en el piso
+                    # O usamos p.lifetime para mantener su transparencia actual si quieres
+                    shape = 'circle'
+                    surf = self.get_cached_surface(shape, p.color, p.size, 200) 
+                    
+                    if surf:
+                        # DIBUJAR EN LA SUPERFICIE PERMANENTE (BAKING)
+                        # Restamos la mitad del tamaño para centrar, igual que en render
+                        draw_x = int(p.x - surf.get_width() // 2)
+                        draw_y = int(p.y - surf.get_height() // 2)
+                        
+                        # Dibujamos sobre la superficie de destino (blood_surface)
+                        target_surface.blit(surf, (draw_x, draw_y))
+                        
+                        # ELIMINAR PARTÍCULA ACTIVA
+                        # Al matarla aquí, liberamos espacio en el pool para NUEVA sangre
+                        p.is_alive = False
+                        baked_count += 1
+                        
+        return baked_count
+    
     def clear(self):
         for p in self.pool:
             p.is_alive = False

@@ -53,6 +53,8 @@ class GameplayScene(Scene):
 
         self.particles_rendered = 0
         self.hit_particle_cooldown = 0
+
+        self.blood_surface = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
     
     def on_enter(self):
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
@@ -70,6 +72,8 @@ class GameplayScene(Scene):
         self.dt = 1.0
         self.hit_particle_cooldown = 0
         self.paused = False
+
+        self.blood_surface.fill((0,0,0,0)) # Transparente total
     
     def handle_events(self, event):
         if self.paused:
@@ -182,30 +186,38 @@ class GameplayScene(Scene):
             hit_enemy = projectile.check_collision_grid(self.spatial_grid)
             
             if hit_enemy:
+                # Efecto de empuje
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 
+                # SANGRE DIRECCIONAL
                 if self.hit_particle_cooldown <= 0:
-                    p_speed_sq = projectile.vel_x * projectile.vel_x + projectile.vel_y * projectile.vel_y
+                    # Calculamos dirección normalizada de la bala
+                    p_speed_sq = projectile.vel_x**2 + projectile.vel_y**2
                     direction = None
                     if p_speed_sq > 0.01:
                         inv_speed = 1.0 / math.sqrt(p_speed_sq)
+                        # La sangre sigue la dirección de la bala (exit wound)
                         direction = (projectile.vel_x * inv_speed, projectile.vel_y * inv_speed)
 
+                    # Crear salpicadura con fuerza
                     self.particle_system.create_blood_splatter(
                         hit_enemy.x, hit_enemy.y, 
                         direction_vector=direction, 
-                        force=1.2,
-                        count=4
+                        force=1.5, # Fuerza extra
+                        count=6    # Más partículas base
                     )
                     
+                    # Pequeño cooldown para no saturar si hay metralleta
                     if self.particle_system.quality == 2:
-                        self.hit_particle_cooldown = 2
+                        self.hit_particle_cooldown = 1 # Muy poco delay en Ultra
                     else:
-                        self.hit_particle_cooldown = 5
+                        self.hit_particle_cooldown = 4
 
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
+                    # EXPLOSIÓN GORE AL MORIR
                     self.particle_system.create_viscera_explosion(hit_enemy.x, hit_enemy.y)
+                    
                     if hit_enemy in self.enemies:
                         self.enemies.remove(hit_enemy)
             
@@ -237,11 +249,22 @@ class GameplayScene(Scene):
         
         self.particle_pool.update_all(self.dt)
         
+        # --- NUEVO: OPTIMIZACIÓN DE GORE ---
+        # "Horneamos" la sangre estática en la superficie de fondo.
+        # Esto libera partículas del pool para que puedas seguir generando infinitas.
+        self.particle_pool.bake_static_blood(self.blood_surface)
+        
         self.frame_counter += 1
     
     def render(self):
         self.screen.fill(BLACK)
         self._render_grid()
+
+        bg_x = max(0, int(-self.camera.offset_x))
+        bg_y = max(0, int(-self.camera.offset_y))
+
+        area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.screen.blit(self.blood_surface, (0, 0), area=area_rect)
         
         # PROTECCIÓN EXTRA
         # Solo intentamos dibujar el arma si el jugador existe

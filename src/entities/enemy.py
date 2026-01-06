@@ -31,8 +31,9 @@ class Enemy:
         self.hitbox_padding = 10
         hitbox_total = self.size + self.hitbox_padding
         
-        self.bleed_timer = 0
-        self.bleed_intensity = 0
+        self.bleed_intensity = 0.0
+        self.bleed_decay = 0.3
+        self.bleed_drip_cooldown = 0
         self.is_alive = True
         
         self.attack_cooldown = 0
@@ -165,19 +166,29 @@ class Enemy:
         if self.damage_flash > 0:
             self.damage_flash -= 1 * dt
         
-        # SANGRADO DINÁMICO
-        if self.bleed_timer > 0:
-            self.bleed_timer -= 1 * dt
+        # --- MODIFICADO: Lógica de Sangrado Dinámico ---
+        if self.bleed_intensity > 0:
+            # 1. Decaimiento de la intensidad con el tiempo
+            self.bleed_intensity -= self.bleed_decay * dt
+            if self.bleed_intensity < 0:
+                self.bleed_intensity = 0
             
+            # 2. Gestión del goteo
             if self.bleed_drip_cooldown > 0:
                 self.bleed_drip_cooldown -= 1 * dt
             
-            # GOTEO: Solo en calidad ALTA
-            if particle_system and particle_system.quality >= 2:
-                # Probabilidad 20% por frame si el cooldown permite
-                if self.bleed_drip_cooldown <= 0 and random.random() < 0.2: 
-                    particle_system.create_blood_drip(self.x, self.y)
-                    self.bleed_drip_cooldown = 15 # Gotea frecuente (cada ~0.25s)
+            if self.bleed_drip_cooldown <= 0 and particle_system:
+                # La frecuencia del goteo depende de la intensidad
+                # Mucha sangre = gotea muy rápido (cooldown bajo)
+                # Poca sangre = gotea lento (cooldown alto)
+                
+                # Fórmula inversa: A más intensidad, menos espera.
+                delay = max(2, 20 - (self.bleed_intensity * 0.8))
+                
+                # Llamamos a la nueva función pasando la intensidad actual
+                particle_system.create_blood_drip(self.x, self.y, self.bleed_intensity)
+                
+                self.bleed_drip_cooldown = delay
     
     def can_attack(self):
         return self.attack_cooldown <= 0
@@ -193,9 +204,15 @@ class Enemy:
     
     def take_damage(self, damage):
         if not self.is_alive: return False
+        
         self.health -= damage
         self.damage_flash = 10
-        self.bleed_timer = 60
+        
+        # Aumentar intensidad al recibir daño
+        self.bleed_intensity += damage 
+        if self.bleed_intensity > 40: 
+            self.bleed_intensity = 40
+            
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
