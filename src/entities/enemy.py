@@ -1,6 +1,3 @@
-"""
-Enemigos optimizados con SANGRADO REDUCIDO
-"""
 import pygame
 import math
 import random
@@ -54,98 +51,100 @@ class Enemy:
             hitbox_total
         )
         
-        self._last_dist_sq = 0
+        self.bleed_drip_cooldown = 0
         
-        # --- NUEVO: Control de sangrado ---
-        self.bleed_drip_cooldown = 0  # Evita spam de goteos
-    
+        # === AJUSTES DE FÍSICA SOLIDA ===
+        # Radio físico real (un poco menos que el visual para permitir solapamiento leve)
+        self.radius = self.size * 0.45 
+        
+        # Pequeña variación de velocidad para romper filas perfectas
+        self.speed_variance = random.uniform(0.9, 1.1)
+
     def move_towards_player(self, player_pos, spatial_grid=None, dt=1.0):
         if not self.is_alive:
             return
+
+        # ---------------------------------------------------------
+        # 1. MOVIMIENTO BASE (Perseguir)
+        # ---------------------------------------------------------
+        dx = player_pos[0] - self.x
+        dy = player_pos[1] - self.y
+        dist_sq = dx*dx + dy*dy
+        dist_to_player = math.sqrt(dist_sq) if dist_sq > 0 else 0.001
         
-        # Vector hacia el jugador (Deseo)
-        target_dx = player_pos[0] - self.x
-        target_dy = player_pos[1] - self.y
-        dist_sq = target_dx*target_dx + target_dy*target_dy
-        self._last_dist_sq = dist_sq
+        # Normalizamos vector hacia jugador
+        dir_x = dx / dist_to_player
+        dir_y = dy / dist_to_player
+
+        # Si estamos MUY cerca (rango de ataque), dejamos de caminar.
+        # Esto elimina el efecto de "rodear como insectos".
+        # Simplemente se detienen y atacan.
+        attack_range = self.size * 0.6 + 10
         
-        # Normalizar vector al jugador
-        if dist_sq > 0.01:
-            inv_dist = 1.0 / math.sqrt(dist_sq)
-            dir_x = target_dx * inv_dist
-            dir_y = target_dy * inv_dist
-        else:
-            dir_x, dir_y = 0, 0
-            
-        # Vector de Separación (Evitar superposición)
-        separation_x = 0
-        separation_y = 0
-        separation_force = 0
+        move_speed = 0
+        if dist_to_player > attack_range:
+            move_speed = self.speed * self.speed_variance
+        
+        # ---------------------------------------------------------
+        # 2. COLISIÓN ENTRE ENEMIGOS (Repulsión)
+        # ---------------------------------------------------------
+        push_x = 0
+        push_y = 0
         
         if spatial_grid:
-            # Buscamos vecinos cercanos (radio pequeño, ej: 30px)
-            # Usamos radius=0 en el grid para solo mirar celda actual y optimizar
+            # radius=1 busca solo vecinos inmediatos.
             neighbors = spatial_grid.get_nearby(self.x, self.y, radius=1)
-            count = 0
             
-            # Radio de "espacio personal"
-            personal_space = self.size * 1.5 
-            personal_space_sq = personal_space ** 2
+            # Solo nos importa si están tocándose físicamente
+            collision_radius_sq = (self.radius * 2) ** 2 
             
             for other in neighbors:
                 if other is self or not other.is_alive:
                     continue
                 
-                dx = self.x - other.x
-                dy = self.y - other.y
-                d_sq = dx*dx + dy*dy
+                odx = self.x - other.x
+                ody = self.y - other.y
+                odist_sq = odx*odx + ody*ody
                 
-                # Si está demasiado cerca, nos empujamos
-                if 0 < d_sq < personal_space_sq:
-                    # Cuanto más cerca, más fuerte el empuje
-                    force = (personal_space_sq / d_sq) - 1
-                    separation_x += dx * force
-                    separation_y += dy * force
-                    count += 1
+                # Si se superponen...
+                if 0 < odist_sq < collision_radius_sq:
+                    odist = math.sqrt(odist_sq)
+                    
+                    # Fuerza de empuje proporcional a qué tan metidos están uno en el otro.
+                    # Es una fuerza física dura, no una sugerencia de dirección.
+                    overlap = (self.radius * 2) - odist
+                    push_strength = overlap * 0.5 # Factor de rigidez
+                    
+                    # Normalizamos y aplicamos fuerza
+                    push_x += (odx / odist) * push_strength
+                    push_y += (ody / odist) * push_strength
+
+        # ---------------------------------------------------------
+        # 3. APLICAR MOVIMIENTO FINAL
+        # ---------------------------------------------------------
+        
+        # Movimiento voluntario (hacia jugador) + Empuje de otros (física)
+        final_dx = (dir_x * move_speed) + push_x
+        final_dy = (dir_y * move_speed) + push_y
+        
+        # Aplicamos al mundo
+        self.x += (final_dx + self.knockback_x) * dt
+        self.y += (final_dy + self.knockback_y) * dt
+        
+        # Knockback decay
+        if abs(self.knockback_x) > 0.01 or abs(self.knockback_y) > 0.01:
+            self.knockback_x *= self.knockback_decay ** dt
+            self.knockback_y *= self.knockback_decay ** dt
+            if abs(self.knockback_x) < 0.1: self.knockback_x = 0
+            if abs(self.knockback_y) < 0.1: self.knockback_y = 0
             
-            if count > 0:
-                # Promediamos y aplicamos fuerza
-                separation_x /= count
-                separation_y /= count
-        
-        # Combinar vectores
-        # Peso de separación alto para evitar que se junten
-        sep_weight = 1.5 
-        
-        final_dx = dir_x + (separation_x * sep_weight)
-        final_dy = dir_y + (separation_y * sep_weight)
-        
-        # Normalizar el resultado final para no exceder la velocidad máxima
-        final_len_sq = final_dx*final_dx + final_dy*final_dy
-        if final_len_sq > 0.01:
-            inv_len = 1.0 / math.sqrt(final_len_sq)
-            final_dx *= inv_len
-            final_dy *= inv_len
-        
-        # Aplicar movimiento
-        self.x += (final_dx * self.speed + self.knockback_x) * dt
-        self.y += (final_dy * self.speed + self.knockback_y) * dt
-        
-        decay_factor = self.knockback_decay ** dt
-        self.knockback_x *= decay_factor
-        self.knockback_y *= decay_factor
-        
-        if abs(self.knockback_x) < 0.1: self.knockback_x = 0
-        if abs(self.knockback_y) < 0.1: self.knockback_y = 0
-        
-        hitbox_total = self.size + self.hitbox_padding
-        self.rect.x = int(self.x - hitbox_total // 2)
-        self.rect.y = int(self.y - hitbox_total // 2)
-    
+        # Actualizar Rect
+        self.rect.centerx = int(self.x)
+        self.rect.centery = int(self.y)
+
+
     def get_distance_squared_to(self, x, y):
-        dx = self.x - x
-        dy = self.y - y
-        return dx*dx + dy*dy
+        return (self.x - x)**2 + (self.y - y)**2
     
     def apply_knockback(self, projectile_x, projectile_y, force=5):
         dx = self.x - projectile_x
@@ -199,20 +198,16 @@ class Enemy:
         return False
     
     def take_damage(self, damage):
-        if not self.is_alive:
-            return False
+        if not self.is_alive: return False
         self.health -= damage
         self.damage_flash = 10
-        
-        # Sangrado activado pero MÁS CORTO
-        self.bleed_timer = 60  # Reducido de 120 a 60
-        
+        self.bleed_timer = 60
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
             return True
         return False
-    
+
     def render(self, screen, camera):
         if not self.is_alive:
             return
