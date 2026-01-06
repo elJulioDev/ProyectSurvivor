@@ -3,15 +3,18 @@ import math
 import random
 from settings import (
     ENEMY_SIZE, ENEMY_SPEED, ENEMY_COLOR,
-    ENEMY_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT,
+    WORLD_WIDTH, WORLD_HEIGHT,
 )
+
+# Caché visual: Guarda tuplas (imagen_normal, imagen_flash)
+SPRITE_CACHE = {}
 
 class Enemy:
     TYPES = {
-        'small': {'size_mult': 0.7, 'health': 30, 'speed_mult': 1.1, 'damage': 5, 'color': (255, 100, 100), 'points': 5},
+        'small': {'size_mult': 0.9, 'health': 30, 'speed_mult': 1.1, 'damage': 5, 'color': (255, 100, 100), 'points': 5},
         'normal': {'size_mult': 1.0, 'health': 50, 'speed_mult': 1.0, 'damage': 10, 'color': (255, 50, 50), 'points': 10},
         'large': {'size_mult': 1.5, 'health': 80, 'speed_mult': 0.7, 'damage': 15, 'color': (200, 0, 0), 'points': 20},
-        'tank': {'size_mult': 2.0, 'health': 150, 'speed_mult': 0.5, 'damage': 20, 'color': (150, 0, 0), 'points': 30}
+        'tank': {'size_mult': 2.0, 'health': 250, 'speed_mult': 0.5, 'damage': 20, 'color': (150, 0, 0), 'points': 30}
     }
     
     def __init__(self, x, y, speed_multiplier=1.0, enemy_type='normal'):
@@ -21,21 +24,33 @@ class Enemy:
         type_data = self.TYPES[enemy_type]
         
         self.size = int(ENEMY_SIZE * type_data['size_mult'])
-        self.speed = ENEMY_SPEED * speed_multiplier * type_data['speed_mult']
+        self.base_speed = ENEMY_SPEED * speed_multiplier * type_data['speed_mult']
         self.color = type_data['color']
         self.damage = type_data['damage']
         self.max_health = type_data['health']
         self.health = self.max_health
         self.points = type_data['points']
 
+        # HITBOX Y PADDING
         self.hitbox_padding = 10
-        hitbox_total = self.size + self.hitbox_padding
+        self.hitbox_total = self.size + self.hitbox_padding
         
-        self.bleed_intensity = 0.0
-        self.bleed_decay = 0.3
-        self.bleed_drip_cooldown = 0
+        # Generamos (o recuperamos) las DOS imágenes
+        self.image, self.flash_image = self._get_cached_sprite(self.size, self.hitbox_total, self.color)
+        
+        self.rect = pygame.Rect(0, 0, self.hitbox_total, self.hitbox_total)
+        self.rect.center = (self.x, self.y)
+        
+        # FÍSICA SUAVE (Radio un poco menor para permitir overlap visual)
+        self.radius = self.size * 0.40 
+        self.speed_variance = random.uniform(0.9, 1.1)
+        
+        # Velocidad calculada (Batching)
+        self.vx = 0
+        self.vy = 0
+
+        # Estado
         self.is_alive = True
-        
         self.attack_cooldown = 0
         self.attack_delay = 60
         
@@ -44,150 +59,120 @@ class Enemy:
         self.knockback_decay = 0.88
         
         self.damage_flash = 0
-        
-        self.rect = pygame.Rect(
-            self.x - hitbox_total // 2,
-            self.y - hitbox_total // 2,
-            hitbox_total,
-            hitbox_total
-        )
-        
+        self.bleed_intensity = 0.0
+        self.bleed_decay = 0.3
         self.bleed_drip_cooldown = 0
-        
-        # AJUSTES DE FÍSICA SOLIDA
-        # Radio físico real (un poco menos que el visual para permitir solapamiento leve)
-        self.radius = self.size * 0.45 
-        
-        # Pequeña variación de velocidad para romper filas perfectas
-        self.speed_variance = random.uniform(0.9, 1.1)
 
-    def move_towards_player(self, player_pos, spatial_grid=None, dt=1.0):
-        if not self.is_alive:
-            return
+    def _get_cached_sprite(self, size, total_size, color):
+        """
+        Genera dos sprites:
+        1. Normal: Tu diseño original.
+        2. Flash: Cuerpo BLANCO, pero bordes y centro oscuros (para el efecto de daño).
+        """
+        key = (size, total_size, color)
+        if key not in SPRITE_CACHE:
+            # PREPARACIÓN COMÚN
+            offset = (total_size - size) // 2
+            draw_rect = pygame.Rect(offset, offset, size, size)
+            border_color = tuple(max(0, c - 50) for c in color)
+            
+            center_size = max(2, size // 3)
+            c_pos = offset + (size - center_size) // 2
+            center_rect = (c_pos, c_pos, center_size, center_size)
 
-        # MOVIMIENTO BASE (Perseguir)
+            # IMAGEN NORMAL
+            surf = pygame.Surface((total_size, total_size), pygame.SRCALPHA)
+            pygame.draw.rect(surf, color, draw_rect)
+            pygame.draw.rect(surf, border_color, draw_rect, 2)
+            pygame.draw.rect(surf, border_color, center_rect)
+            
+            # IMAGEN FLASH (DAÑO)
+            surf_flash = pygame.Surface((total_size, total_size), pygame.SRCALPHA)
+            pygame.draw.rect(surf_flash, (255, 255, 255), draw_rect)
+            pygame.draw.rect(surf_flash, border_color, draw_rect, 2)
+            pygame.draw.rect(surf_flash, border_color, center_rect)
+            
+            SPRITE_CACHE[key] = (surf, surf_flash)
+            
+        return SPRITE_CACHE[key]
+    
+    def update_ai(self, player_pos, spatial_grid):
+        """ LÓGICA DE MOVIMIENTO OPTIMIZADA (TIME SLICING) """
+        if not self.is_alive: return
+
         dx = player_pos[0] - self.x
         dy = player_pos[1] - self.y
         dist_sq = dx*dx + dy*dy
         dist_to_player = math.sqrt(dist_sq) if dist_sq > 0 else 0.001
         
-        # Normalizamos vector hacia jugador
         dir_x = dx / dist_to_player
         dir_y = dy / dist_to_player
 
-        # Si estamos MUY cerca (rango de ataque), dejamos de caminar.
-        # Esto elimina el efecto de "rodear como insectos".
-        # Simplemente se detienen y atacan.
         attack_range = self.size * 0.6 + 10
-        
-        move_speed = 0
+        current_move_speed = 0
         if dist_to_player > attack_range:
-            move_speed = self.speed * self.speed_variance
-        
-        # COLISIÓN ENTRE ENEMIGOS (Repulsión)
-        push_x = 0
-        push_y = 0
+            current_move_speed = self.base_speed * self.speed_variance
+            
+        push_x, push_y = 0, 0
         
         if spatial_grid:
-            # radius=1 busca solo vecinos inmediatos.
             neighbors = spatial_grid.get_nearby(self.x, self.y, radius=1)
-            
-            # Solo nos importa si están tocándose físicamente
             collision_radius_sq = (self.radius * 2) ** 2 
             
+            count = 0
             for other in neighbors:
-                if other is self or not other.is_alive:
-                    continue
+                if other is self or not other.is_alive: continue
+                if count > 6: break 
                 
                 odx = self.x - other.x
                 ody = self.y - other.y
                 odist_sq = odx*odx + ody*ody
                 
-                # Si se superponen...
                 if 0 < odist_sq < collision_radius_sq:
                     odist = math.sqrt(odist_sq)
-                    
-                    # Fuerza de empuje proporcional a qué tan metidos están uno en el otro.
-                    # Es una fuerza física dura, no una sugerencia de dirección.
                     overlap = (self.radius * 2) - odist
-                    push_strength = overlap * 0.5 # Factor de rigidez
                     
-                    # Normalizamos y aplicamos fuerza
+                    # FUERZA SUAVE (0.05) para permitir enjambre
+                    push_strength = overlap * 0.05 
+                    
                     push_x += (odx / odist) * push_strength
                     push_y += (ody / odist) * push_strength
-
-        # APLICAR MOVIMIENTO FINAL
-
-        # Movimiento voluntario (hacia jugador) + Empuje de otros (física)
-        final_dx = (dir_x * move_speed) + push_x
-        final_dy = (dir_y * move_speed) + push_y
+                    count += 1
         
-        # Aplicamos al mundo
-        self.x += (final_dx + self.knockback_x) * dt
-        self.y += (final_dy + self.knockback_y) * dt
+        self.vx = (dir_x * current_move_speed) + push_x
+        self.vy = (dir_y * current_move_speed) + push_y
+
+    def update_physics(self, dt=1.0):
+        if not self.is_alive: return
         
-        # Knockback decay
+        self.x += (self.vx + self.knockback_x) * dt
+        self.y += (self.vy + self.knockback_y) * dt
+        
         if abs(self.knockback_x) > 0.01 or abs(self.knockback_y) > 0.01:
             self.knockback_x *= self.knockback_decay ** dt
             self.knockback_y *= self.knockback_decay ** dt
             if abs(self.knockback_x) < 0.1: self.knockback_x = 0
             if abs(self.knockback_y) < 0.1: self.knockback_y = 0
-            
-        # Actualizar Rect
+        
         self.rect.centerx = int(self.x)
         self.rect.centery = int(self.y)
-
-
-    def get_distance_squared_to(self, x, y):
-        return (self.x - x)**2 + (self.y - y)**2
-    
-    def apply_knockback(self, projectile_x, projectile_y, force=5):
-        dx = self.x - projectile_x
-        dy = self.y - projectile_y
-        dist_sq = dx*dx + dy*dy
         
-        if dist_sq > 1:
-            inv_dist = 1.0 / math.sqrt(dist_sq)
-            dx *= inv_dist
-            dy *= inv_dist
-            size_factor = 1.0 / self.TYPES[self.enemy_type]['size_mult']
-            self.knockback_x = dx * force * size_factor
-            self.knockback_y = dy * force * size_factor
-    
+        if self.attack_cooldown > 0: self.attack_cooldown -= 1 * dt
+        if self.damage_flash > 0: self.damage_flash -= 1 * dt
+
     def update(self, particle_system=None, dt=1.0):
-        """
-        Actualización con sangrado DRÁSTICAMENTE REDUCIDO
-        """
-        if not self.is_alive:
-            return
+        if not self.is_alive: return
         
-        if self.attack_cooldown > 0:
-            self.attack_cooldown -= 1 * dt
-        if self.damage_flash > 0:
-            self.damage_flash -= 1 * dt
-        
-        # --- MODIFICADO: Lógica de Sangrado Dinámico ---
         if self.bleed_intensity > 0:
-            # 1. Decaimiento de la intensidad con el tiempo
             self.bleed_intensity -= self.bleed_decay * dt
-            if self.bleed_intensity < 0:
-                self.bleed_intensity = 0
+            if self.bleed_intensity < 0: self.bleed_intensity = 0
             
-            # 2. Gestión del goteo
             if self.bleed_drip_cooldown > 0:
                 self.bleed_drip_cooldown -= 1 * dt
             
             if self.bleed_drip_cooldown <= 0 and particle_system:
-                # La frecuencia del goteo depende de la intensidad
-                # Mucha sangre = gotea muy rápido (cooldown bajo)
-                # Poca sangre = gotea lento (cooldown alto)
-                
-                # Fórmula inversa: A más intensidad, menos espera.
                 delay = max(2, 20 - (self.bleed_intensity * 0.8))
-                
-                # Llamamos a la nueva función pasando la intensidad actual
                 particle_system.create_blood_drip(self.x, self.y, self.bleed_intensity)
-                
                 self.bleed_drip_cooldown = delay
     
     def can_attack(self):
@@ -207,50 +192,55 @@ class Enemy:
         
         self.health -= damage
         self.damage_flash = 10
-        
-        # Aumentar intensidad al recibir daño
         self.bleed_intensity += damage 
-        if self.bleed_intensity > 40: 
-            self.bleed_intensity = 40
+        if self.bleed_intensity > 40: self.bleed_intensity = 40
             
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
             return True
         return False
+    
+    def apply_knockback(self, projectile_x, projectile_y, force=5):
+        dx = self.x - projectile_x
+        dy = self.y - projectile_y
+        dist_sq = dx*dx + dy*dy
+        if dist_sq > 1:
+            inv_dist = 1.0 / math.sqrt(dist_sq)
+            dx *= inv_dist
+            dy *= inv_dist
+            size_factor = 1.0 / self.TYPES[self.enemy_type]['size_mult']
+            self.knockback_x = dx * force * size_factor
+            self.knockback_y = dy * force * size_factor
 
     def render(self, screen, camera):
-        if not self.is_alive:
+        if not self.is_alive: return
+        
+        if not camera.is_on_screen(self.rect):
             return
+
+        screen_pos = camera.apply_coords(self.rect.x, self.rect.y)
         
-        screen_rect = camera.apply_rect(self.rect)
+        screen.blit(self.image, screen_pos)
         
-        render_color = self.color
         if self.damage_flash > 0:
-            flash_intensity = int(255 * (self.damage_flash / 10))
-            render_color = (min(255, self.color[0] + flash_intensity), 
-                          min(255, self.color[1] + flash_intensity), 
-                          min(255, self.color[2] + flash_intensity))
-        
-        pygame.draw.rect(screen, render_color, screen_rect)
-        
-        border_color = tuple(max(0, c - 50) for c in self.color)
-        pygame.draw.rect(screen, border_color, screen_rect, 2) 
-        
-        center_size = max(2, self.size // 3)
-        center_x = screen_rect.centerx - center_size // 2
-        center_y = screen_rect.centery - center_size // 2
-        pygame.draw.rect(screen, border_color, (center_x, center_y, center_size, center_size))
-        
+            alpha = int(min(255, max(0, self.damage_flash * 25.5))) 
+            self.flash_image.set_alpha(alpha)
+            screen.blit(self.flash_image, screen_pos)
+
         if self.health < self.max_health:
             bar_width = self.size
             bar_height = 4
             health_width = (self.health / self.max_health) * bar_width
             
-            pygame.draw.rect(screen, (60, 0, 0), (screen_rect.x, screen_rect.y - 7, bar_width, bar_height))
+            offset = (self.hitbox_total - self.size) // 2
+            bar_x = screen_pos[0] + offset
+            bar_y = screen_pos[1] + offset - 7
+            
+            pygame.draw.rect(screen, (60, 0, 0), (bar_x, bar_y, bar_width, bar_height))
             
             health_color = (255, 0, 0) if self.health < self.max_health * 0.3 else (255, 100, 0)
-            pygame.draw.rect(screen, health_color, (screen_rect.x, screen_rect.y - 7, health_width, bar_height))
+            pygame.draw.rect(screen, health_color, (bar_x, bar_y, health_width, bar_height))
 
     @staticmethod
     def spawn_random(speed_multiplier=1.0, wave=1):

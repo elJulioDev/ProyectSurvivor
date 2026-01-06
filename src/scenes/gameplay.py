@@ -46,25 +46,28 @@ class GameplayScene(Scene):
         self.font_pause = pygame.font.Font(None, 80)
         self.font_btn = pygame.font.Font(None, 36)
         
-        # Botones de pausa (Centrados)
         cx, cy = WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2
         self.btn_continue = Button(cx, cy + 20, 200, 50, "Continuar", self.font_btn)
         self.btn_exit = Button(cx, cy + 90, 200, 50, "Salir del Juego", self.font_btn)
 
         self.particles_rendered = 0
         self.hit_particle_cooldown = 0
-
         self.blood_surface = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
-    
+        self.blood_surface.fill((0,0,0,0))
+
+        # CONFIGURACIÓN DE BATCHING
+        self.ai_update_interval = 4  # Actualizar IA cada 4 frames
+        self.frame_counter = 0
+
+        # Contador para mantener K presionada
+        self.k_hold_counter = 0
+
     def on_enter(self):
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         self.enemies = []
-        
         for weapon in self.player.weapons:
             weapon.set_projectile_pool(self.projectile_pool)
-        
         self.particle_system.set_pool(self.particle_pool)
-        
         self.projectile_pool.clear()
         self.particle_pool.clear()
         self.wave_manager.start_wave()
@@ -72,22 +75,19 @@ class GameplayScene(Scene):
         self.dt = 1.0
         self.hit_particle_cooldown = 0
         self.paused = False
-
-        self.blood_surface.fill((0,0,0,0)) # Transparente total
+        self.blood_surface.fill((0,0,0,0))
     
     def handle_events(self, event):
         if self.paused:
             mouse_pos = self.game.get_mouse_pos()
             self.btn_continue.update(mouse_pos)
             self.btn_exit.update(mouse_pos)
-            
             if self.btn_continue.is_clicked(event):
                 self.paused = False
-            
             if self.btn_exit.is_clicked(event):
                 pygame.quit()
                 sys.exit()
-
+        
         if self.player and not self.paused:
             self.player.handle_event(event)
 
@@ -95,33 +95,16 @@ class GameplayScene(Scene):
             if event.key == pygame.K_ESCAPE:
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
-            
-            # Alternar Pausa con ENTER
             elif event.key == pygame.K_RETURN: 
                 self.paused = not self.paused
-                
             elif event.key == pygame.K_F3:
                 self.show_debug = not self.show_debug
-
-            # SALTAR OLEADA (DEBUG / PERFORMANCE TEST)
-            elif event.key == pygame.K_k:
-                # Limpiamos los enemigos actuales para no sobrecargar
-                self.enemies.clear()
-                self.spatial_grid.clear()
-                self.projectile_pool.clear()
-                # Forzamos el incremento de la oleada
-                self.wave_manager.current_wave += 1
-                # Iniciamos la nueva oleada inmediatamente
-                self.wave_manager.start_wave()
     
     def update(self):
-        # Calculamos dt siempre para mantener el reloj fluido
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
         self.dt = min(raw_dt, 3.0)
         
-        # Lógica de Pausa
         if self.paused:
-            # Actualizamos hover de botones aunque no haya eventos (para feedback visual constante)
             mouse_pos = self.game.get_mouse_pos()
             self.btn_continue.update(mouse_pos)
             self.btn_exit.update(mouse_pos)
@@ -132,15 +115,10 @@ class GameplayScene(Scene):
             self.next_scene = GameOverScene(self.game, self.score, self.wave_manager.current_wave)
             return
         
-        # CONTROL DE CALIDAD DINÁMICA
         enemy_count = len(self.enemies)
-
-        if enemy_count < 50:
-            self.particle_system.set_quality(2)
-        elif enemy_count < 150:
-            self.particle_system.set_quality(1)
-        else:
-            self.particle_system.set_quality(0)
+        if enemy_count < 50: self.particle_system.set_quality(2)
+        elif enemy_count < 150: self.particle_system.set_quality(1)
+        else: self.particle_system.set_quality(0)
         
         keys = pygame.key.get_pressed()
         mouse_pos = self.game.get_mouse_pos()
@@ -149,109 +127,110 @@ class GameplayScene(Scene):
         self.player.handle_input(keys, self.dt)
         self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
         self.player.update(self.dt)
-        
         if mouse_pressed[0]:
             self.player.attack()
-
         self.camera.update(self.player, mouse_pos)
+
+        # Manejar mantener K presionada para subir oleadas rápidamente
+        if keys[pygame.K_k]:
+            self.k_hold_counter += 1
+            if self.k_hold_counter >= 1:
+                self.k_hold_counter = 0
+                self.enemies.clear()
+                self.spatial_grid.clear()
+                self.projectile_pool.clear()
+                self.wave_manager.current_wave += 1
+                self.wave_manager.start_wave()
         
+        # --- 1. SPATIAL GRID ---
         self.spatial_grid.clear()
         for enemy in self.enemies:
-            if enemy.is_alive:
-                self.spatial_grid.insert(enemy)
+             if enemy.is_alive:
+                 self.spatial_grid.insert(enemy)
+
+        # --- 2. LOGICA DE ENEMIGOS UNIFICADA (BATCHING) ---
+        player_pos = self.player.get_position()
+        current_batch = self.frame_counter % self.ai_update_interval
         
+        # Reconstruimos la lista para eliminar muertos eficientemente
+        active_enemies = []
+
+        for i, enemy in enumerate(self.enemies):
+            if not enemy.is_alive: continue # Ignorar muertos (se limpiarán al final)
+
+            # A. Batching AI (Lógica pesada)
+            if i % self.ai_update_interval == current_batch:
+                enemy.update_ai(player_pos, self.spatial_grid)
+            
+            # B. Física (Siempre)
+            enemy.update_physics(self.dt)
+            
+            # C. Lógica varia (Sangre, Cooldowns)
+            enemy.update(self.particle_system, self.dt)
+            
+            # D. Ataque (Simple distancia cuadrada)
+            dist_sq = (enemy.x - self.player.x)**2 + (enemy.y - self.player.y)**2
+            if dist_sq < 2500: # 50px radio
+                 enemy.attack(self.player)
+
+            # Si sigue vivo tras todo esto, lo conservamos
+            if enemy.is_alive:
+                active_enemies.append(enemy)
+        
+        # Asignamos la lista limpia
+        self.enemies = active_enemies
+
+        # --- ARMAS Y PROYECTILES ---
         if self.hit_particle_cooldown > 0:
             self.hit_particle_cooldown -= 1 * self.dt
         
         for weapon in self.player.weapons:
             weapon.update(dt=self.dt)
-
             if isinstance(weapon, LaserWeapon):
                 if weapon.draw_timer >= weapon.duration - 1:
                     beam = weapon.get_beam_info()
                     if beam:
                         start, end = beam
-                        for enemy in self.enemies[:]:
+                        # Copia para iterar seguro, aunque aquí el remove es menos crítico si usamos is_alive
+                        for enemy in self.enemies:
                             if enemy.rect.clipline(start, end):
                                 if enemy.take_damage(weapon.damage):
                                     self.score += enemy.points
                                     self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
-                                    if enemy in self.enemies: 
-                                        self.enemies.remove(enemy)
         
-        # PROYECTILES
         for projectile in self.projectile_pool.active[:]:
             projectile.update(self.dt)
-            
             hit_enemy = projectile.check_collision_grid(self.spatial_grid)
             
-            if hit_enemy:
-                # Efecto de empuje
+            if hit_enemy and hit_enemy.is_alive:
                 hit_enemy.apply_knockback(projectile.x, projectile.y, force=8)
                 
-                # SANGRE DIRECCIONAL
                 if self.hit_particle_cooldown <= 0:
-                    # Calculamos dirección normalizada de la bala
                     p_speed_sq = projectile.vel_x**2 + projectile.vel_y**2
                     direction = None
                     if p_speed_sq > 0.01:
                         inv_speed = 1.0 / math.sqrt(p_speed_sq)
-                        # La sangre sigue la dirección de la bala (exit wound)
                         direction = (projectile.vel_x * inv_speed, projectile.vel_y * inv_speed)
-
-                    # Crear salpicadura con fuerza
                     self.particle_system.create_blood_splatter(
-                        hit_enemy.x, hit_enemy.y, 
-                        direction_vector=direction, 
-                        force=1.5, # Fuerza extra
-                        count=6    # Más partículas base
+                        hit_enemy.x, hit_enemy.y, direction_vector=direction, force=1.5, count=6
                     )
-                    
-                    # Pequeño cooldown para no saturar si hay metralleta
-                    if self.particle_system.quality == 2:
-                        self.hit_particle_cooldown = 1 # Muy poco delay en Ultra
-                    else:
-                        self.hit_particle_cooldown = 4
+                    self.hit_particle_cooldown = 1 if self.particle_system.quality == 2 else 4
 
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
-                    # EXPLOSIÓN GORE AL MORIR
                     self.particle_system.create_viscera_explosion(hit_enemy.x, hit_enemy.y)
+                    # No hacemos remove aquí, el bucle principal lo limpiará en el siguiente frame
                     
-                    if hit_enemy in self.enemies:
-                        self.enemies.remove(hit_enemy)
-            
             if not projectile.is_alive:
                 self.projectile_pool.return_to_pool(projectile)
         
+        # --- SPAWN DE OLEADAS ---
         new_enemy = self.wave_manager.update(self.enemies)
         if new_enemy:
             self.enemies.append(new_enemy)
         
-        viewport_margin = 200
-        
-        for enemy in self.enemies[:]:
-            dist_sq_to_player = enemy.get_distance_squared_to(self.player.x, self.player.y)
-            max_update_dist_sq = (WINDOW_WIDTH + viewport_margin) ** 2
-            
-            # Pasamos self.spatial_grid al método de movimiento
-            if dist_sq_to_player > max_update_dist_sq:
-                # Si está muy lejos, no gastamos CPU en separación (spatial_grid=None)
-                enemy.move_towards_player(self.player.get_position(), None, self.dt)
-            else:
-                # Si está cerca, activamos la IA de enjambre con el grid
-                enemy.move_towards_player(self.player.get_position(), self.spatial_grid, self.dt)
-                enemy.update(self.particle_system, self.dt)
-                enemy.attack(self.player)
-            
-            if not enemy.is_alive:
-                self.enemies.remove(enemy)
-        
+        # --- RENDERIZADO DE PARTÍCULAS ---
         self.particle_pool.update_all(self.dt)
-        
-        # --- NUEVO: OPTIMIZACIÓN DE GORE ---
-        # "Horneamos" la sangre estática en la superficie de fondo.
-        # Esto libera partículas del pool para que puedas seguir generando infinitas.
         self.particle_pool.bake_static_blood(self.blood_surface)
         
         self.frame_counter += 1
@@ -262,12 +241,9 @@ class GameplayScene(Scene):
 
         bg_x = max(0, int(-self.camera.offset_x))
         bg_y = max(0, int(-self.camera.offset_y))
-
         area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.screen.blit(self.blood_surface, (0, 0), area=area_rect)
         
-        # PROTECCIÓN EXTRA
-        # Solo intentamos dibujar el arma si el jugador existe
         if self.player:
             for weapon in self.player.weapons:
                 if hasattr(weapon, 'render'):
@@ -294,19 +270,13 @@ class GameplayScene(Scene):
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
-        # RENDERIZADO DE PAUSA
         if self.paused:
-            # Capa oscura
             overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 180)) # Negro semitransparente más oscuro
+            overlay.fill((0, 0, 0, 180))
             self.screen.blit(overlay, (0, 0))
-            
-            # Texto
             text = self.font_pause.render("PAUSA", True, WHITE)
             rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 80))
             self.screen.blit(text, rect)
-            
-            # Botones
             self.btn_continue.draw(self.screen)
             self.btn_exit.draw(self.screen)
         
@@ -324,22 +294,14 @@ class GameplayScene(Scene):
         for y in range(int(start_y), WINDOW_HEIGHT, grid_size):
             pygame.draw.line(self.screen, grid_color, (0, y), (WINDOW_WIDTH, y))
             
-        # Bordes del mundo
         line_x = self.camera.offset_x
-        if 0 <= line_x <= WINDOW_WIDTH:
-            pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
-            
+        if 0 <= line_x <= WINDOW_WIDTH: pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
         line_x = self.camera.offset_x + WORLD_WIDTH
-        if 0 <= line_x <= WINDOW_WIDTH:
-            pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
-            
+        if 0 <= line_x <= WINDOW_WIDTH: pygame.draw.line(self.screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
         line_y = self.camera.offset_y
-        if 0 <= line_y <= WINDOW_HEIGHT:
-            pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
-
+        if 0 <= line_y <= WINDOW_HEIGHT: pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
         line_y = self.camera.offset_y + WORLD_HEIGHT
-        if 0 <= line_y <= WINDOW_HEIGHT:
-            pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
+        if 0 <= line_y <= WINDOW_HEIGHT: pygame.draw.line(self.screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
 
     def _render_wave_transition(self):
         progress = self.wave_manager.get_completion_progress()
@@ -355,9 +317,7 @@ class GameplayScene(Scene):
         font = pygame.font.Font(None, 24)
         fps = self.clock.get_fps()
         dt_ms = self.dt * (1000.0 / self.target_fps)
-        
         active_particles = sum(1 for p in self.particle_pool.pool if p.is_alive)
-        
         debug_texts = [
             f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
             f"Enemigos: {len(self.enemies)} (Visibles: {enemies_rendered})",
@@ -366,7 +326,6 @@ class GameplayScene(Scene):
             f"Pausa: {'SÍ' if self.paused else 'NO'}",
             "F3: Toggle Debug"
         ]
-        
         y = 110 
         for text in debug_texts:
             surf = font.render(text, True, (0, 255, 0))

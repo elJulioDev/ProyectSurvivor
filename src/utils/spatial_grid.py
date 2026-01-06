@@ -26,9 +26,9 @@ class SpatialGrid:
         return (cell_x, cell_y)
     
     def insert(self, entity):
-        """Inserta entidad en su celda correspondiente"""
-        cell = self._get_cell(entity.x, entity.y)
-        self.grid[cell].append(entity)
+        cell_x = int(entity.x // self.cell_size)
+        cell_y = int(entity.y // self.cell_size)
+        self.grid[(cell_x, cell_y)].append(entity)
     
     def get_nearby(self, x, y, radius=1):
         """
