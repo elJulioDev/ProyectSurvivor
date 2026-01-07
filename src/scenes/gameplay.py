@@ -243,26 +243,29 @@ class GameplayScene(Scene):
         bg_y = max(0, int(-self.camera.offset_y))
         area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.screen.blit(self.blood_surface, (0, 0), area=area_rect)
-        
-        if self.player:
-            for weapon in self.player.weapons:
-                if hasattr(weapon, 'render'):
-                    weapon.render(self.screen, self.camera)
 
-        self.particles_rendered = self.particle_pool.render_all(self.screen, self.camera)
-        
+        rendered_floor = self.particle_pool.render_all(self.screen, self.camera, layer='floor')
+
         for projectile in self.projectile_pool.active:
             if self.camera.is_on_screen(projectile.rect):
                 projectile.render(self.screen, self.camera)
-        
+
         enemies_rendered = 0
         for enemy in self.enemies:
             if self.camera.is_on_screen(enemy.rect):
                 enemy.render(self.screen, self.camera)
                 enemies_rendered += 1
-        
+
+        if self.player:
+            for weapon in self.player.weapons:
+                if hasattr(weapon, 'render'):
+                    weapon.render(self.screen, self.camera)
+
         if self.player:
             self.player.render(self.screen, self.camera)
+
+        rendered_air = self.particle_pool.render_all(self.screen, self.camera, layer='air')
+        self.particles_rendered = rendered_floor + rendered_air # Sumamos para el debug info
         
         if self.hud and self.player:
             self.hud.render(self.player, self.wave_manager.current_wave, self.score, len(self.enemies))

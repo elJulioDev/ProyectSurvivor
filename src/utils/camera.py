@@ -33,11 +33,7 @@ class Camera:
         Determina si un rectángulo (en coordenadas de mundo) 
         debe renderizarse, aplicando un margen de seguridad.
         """
-        # Convertimos el rect del mundo a coordenadas de pantalla
         screen_rect = self.apply_rect(rect)
-        
-        # Creamos un rectángulo de la pantalla "inflado" con el margen
-        # Si el objeto toca este área ampliada, se dibuja.
         display_area = self.viewport_rect.inflate(self.culling_margin, self.culling_margin)
         
         return screen_rect.colliderect(display_area)

@@ -13,7 +13,7 @@ class SpatialGrid:
         self.cell_size = cell_size
         self.world_width = world_width
         self.world_height = world_height
-        self.grid = defaultdict(list)  # {(cell_x, cell_y): [enemies]}
+        self.grid = defaultdict(list)
         
     def clear(self):
         """Limpia el grid (llamar cada frame antes de repoblar)"""
@@ -56,5 +56,4 @@ class SpatialGrid:
                 cell = (cell_x, cell_y)
                 entities.extend(self.grid.get(cell, []))
         
-        # Eliminar duplicados (una entidad grande puede estar en varias celdas)
         return list(set(entities))

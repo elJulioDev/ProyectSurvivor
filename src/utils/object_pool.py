@@ -4,7 +4,6 @@ from entities.projectile import Projectile
 from entities.particle import Particle
 from settings import WINDOW_HEIGHT, WINDOW_WIDTH
 
-# Colores para el cache
 BLOOD_RED = (160, 0, 0)
 DARK_BLOOD = (80, 0, 0)
 GUTS_PINK = (180, 90, 100)
@@ -79,19 +78,17 @@ class ParticlePool:
     def _generate_surface_cache(self):
         """Generamos caché para los 4 colores gore"""
         colors = [BLOOD_RED, DARK_BLOOD, GUTS_PINK, BRIGHT_RED]
-        sizes = [2, 3, 4, 6, 8, 12, 16] # Añadido 16 para charcos grandes
+        sizes = [2, 3, 4, 6, 8, 12, 16]
         alphas = [100, 180, 255]
         
         for color in colors:
             for size in sizes:
                 for alpha in alphas:
-                    # Circular (gotas)
                     key = ('circle', color, size, alpha)
                     surf = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                     pygame.draw.circle(surf, (*color, alpha), (size, size), size)
                     self.cached_surfaces[key] = surf
                     
-                    # Chunk (trozos de carne)
                     key_chunk = ('chunk', color, size, alpha)
                     surf_chunk = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                     pygame.draw.rect(surf_chunk, (*color, alpha), (0, 0, size*2, size*2))
@@ -99,8 +96,7 @@ class ParticlePool:
     
     def get_cached_surface(self, shape, color, size, alpha):
         """Busca la superficie pre-renderizada más cercana"""
-        # Mapeo aproximado de color para usar el caché
-        color_key = DARK_BLOOD # Default
+        color_key = DARK_BLOOD
         if color == GUTS_PINK: color_key = GUTS_PINK
         elif color == BRIGHT_RED: color_key = BRIGHT_RED
         elif color[0] > 140: color_key = BLOOD_RED
@@ -128,7 +124,7 @@ class ParticlePool:
         p.friction = friction
         p.is_chunk = is_chunk
         p.is_liquid = is_liquid
-        p.angle = 0 # Reset angle
+        p.angle = 0
         
         return p
 
@@ -137,13 +133,15 @@ class ParticlePool:
             if p.is_alive:
                 p.update(dt)
     
-    def render_all(self, screen, camera):
-        rendered_count = 0 # Contador de lo que realmente se dibuja
+    def render_all(self, screen, camera, layer='all'):
+        """
+        layer: 'all' (todo), 'floor' (solo charcos estáticos), 'air' (sangre volando)
+        """
+        rendered_count = 0
         blit_sequence = []
         cam_x = camera.offset_x
         cam_y = camera.offset_y
         
-        # Margen para que no desaparezcan de golpe al salir
         margin = 50
         min_x = -margin
         max_x = WINDOW_WIDTH + margin
@@ -153,16 +151,22 @@ class ParticlePool:
         for p in self.pool:
             if not p.is_alive:
                 continue
+
+            is_static_liquid = (p.is_liquid and not p.is_chunk and abs(p.vel_x) < 0.5 and abs(p.vel_y) < 0.5)
             
+            if layer == 'floor':
+                if not is_static_liquid:
+                    continue
+            elif layer == 'air':
+                if is_static_liquid:
+                    continue
+
             screen_x = p.x + cam_x
             screen_y = p.y + cam_y
             
-            # --- CULLING (Optimización) ---
-            # Si está fuera de los límites de la pantalla, saltamos al siguiente
             if not (min_x < screen_x < max_x and min_y < screen_y < max_y):
                 continue
 
-            # Si pasa el filtro, contamos y preparamos para dibujar
             rendered_count += 1
 
             life_ratio = p.lifetime / p.max_lifetime
@@ -171,9 +175,6 @@ class ParticlePool:
             alpha = int(255 * life_ratio)
             if alpha < 10: continue
 
-            # Lógica visual mejorada: Los líquidos estáticos no se encogen
-            is_static_liquid = (p.is_liquid and not p.is_chunk and abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1)
-            
             if is_static_liquid:
                 current_size = p.size
             else:
@@ -192,7 +193,7 @@ class ParticlePool:
         if blit_sequence:
             screen.blits(blit_sequence)
             
-        return rendered_count # Retornamos la cantidad real dibujada
+        return rendered_count
 
     def bake_static_blood(self, target_surface):
         """
@@ -204,29 +205,15 @@ class ParticlePool:
         for p in self.pool:
             if not p.is_alive:
                 continue
-            
-            # Si es líquido (sangre/guts), NO es un chunk rebotando, y ya casi no se mueve
+
             if p.is_liquid and not p.is_chunk:
-                # Verificamos si está quieto (velocidad muy baja)
                 if abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1:
-                    
-                    # Obtenemos su gráfico del caché
-                    # Usamos alpha 255 (u otro valor) para que quede bien marcado en el piso
-                    # O usamos p.lifetime para mantener su transparencia actual si quieres
                     shape = 'circle'
                     surf = self.get_cached_surface(shape, p.color, p.size, 200) 
-                    
                     if surf:
-                        # DIBUJAR EN LA SUPERFICIE PERMANENTE (BAKING)
-                        # Restamos la mitad del tamaño para centrar, igual que en render
                         draw_x = int(p.x - surf.get_width() // 2)
                         draw_y = int(p.y - surf.get_height() // 2)
-                        
-                        # Dibujamos sobre la superficie de destino (blood_surface)
                         target_surface.blit(surf, (draw_x, draw_y))
-                        
-                        # ELIMINAR PARTÍCULA ACTIVA
-                        # Al matarla aquí, liberamos espacio en el pool para NUEVA sangre
                         p.is_alive = False
                         baked_count += 1
                         
