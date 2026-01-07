@@ -206,14 +206,14 @@ class Player:
         if self.health > old_health:
             print(f"Curado: +{amount} HP (Total: {self.health})")
 
-    def attack(self):
+    def attack(self, camera=None):
         """Dispara SOLAMENTE el arma seleccionada"""
         if not self.is_alive or self.dash_active:
             return
 
-        # Accedemos al arma actual usando el índice
         current_weapon = self.weapons[self.current_weapon_index]
-        current_weapon.shoot()
+        # Pasamos la cámara al método shoot del arma
+        current_weapon.shoot(camera)
 
     def render(self, screen, camera):
         if not self.is_alive:

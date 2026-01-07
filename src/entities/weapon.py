@@ -5,143 +5,118 @@ Estructura limpia: Pistola, Escopeta y Láser.
 import math, random, pygame
 
 class Weapon:
-    def __init__(self, owner, cooldown=60, damage=10):
+    def __init__(self, owner, cooldown=60, damage=10, kickback=0, shake=0, spread=0):
         self.owner = owner
         self.cooldown = cooldown
         self.current_cooldown = 0
         self.damage = damage
         self.projectile_pool = None
+        self.kickback = kickback
+        self.shake_amount = shake
+        self.base_spread = spread
+        self.current_spread = spread
 
     def set_projectile_pool(self, pool):
         """Asigna el pool de proyectiles"""
         self.projectile_pool = pool
 
     def update(self, dt=1.0):
-        """Gestiona el enfriamiento (Cooldown)"""
         if self.current_cooldown > 0:
             self.current_cooldown -= 1 * dt
-            return 0
-        return 0
 
-    def shoot(self):
-        """
-        Intenta disparar si el cooldown lo permite.
-        Se llama al hacer clic izquierdo.
-        """
+        if self.current_spread > self.base_spread:
+            self.current_spread -= 0.01 * dt
+            if self.current_spread < self.base_spread:
+                self.current_spread = self.base_spread
+
+    def shoot(self, camera=None):
         if self.current_cooldown <= 0:
-            if self.activate():
+            if self.activate(camera):
                 self.current_cooldown = self.cooldown
+                self._apply_physics(camera)
                 return True
         return False
 
-    def activate(self):
-        """Lógica específica del disparo (a implementar por los hijos)"""
+    def _apply_physics(self, camera):
+        """Aplica retroceso físico al jugador y temblor a la cámara"""
+        if self.kickback > 0:
+            angle = self.owner.angle
+            recoil_x = -math.cos(angle) * self.kickback
+            recoil_y = -math.sin(angle) * self.kickback
+            
+            self.owner.vel_x += recoil_x
+            self.owner.vel_y += recoil_y
+
+        if camera and self.shake_amount > 0:
+            camera.add_shake(self.shake_amount)
+
+    def activate(self, camera=None):
         return False
 
 class PistolWeapon(Weapon):
-    """
-    Arma básica (anteriormente WandWeapon).
-    Dispara un solo proyectil preciso hacia el cursor.
-    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=15, damage=8)
+        super().__init__(owner, cooldown=15, damage=12, kickback=0, shake=2.0, spread=0.02)
         
-    def activate(self):
-        if not self.projectile_pool:
-            return False
+    def activate(self, camera=None):
+        if not self.projectile_pool: return False
         
-        angle = self.owner.angle
+        angle = self.owner.angle + random.uniform(-self.current_spread, self.current_spread)
         
-        # Calcular posición de salida (un poco en frente del jugador)
-        spawn_dist = 15
+        spawn_dist = 18
         px = self.owner.x + math.cos(angle) * spawn_dist
         py = self.owner.y + math.sin(angle) * spawn_dist
         
-        # Solicitar proyectil al pool
         p = self.projectile_pool.get(
-            px, py, 
-            angle, 
-            speed=14,
-            damage=self.damage, 
-            penetration=1,
-            image_type='circle'
+            px, py, angle, speed=16, damage=self.damage, 
+            penetration=1, image_type='circle'
         )
         p.color = (0, 255, 255)
+        
+        self.current_spread = min(self.current_spread + 0.05, 0.15)
         return True
 
 class ShotgunWeapon(Weapon):
-    """
-    Escopeta: Dispara abanico de proyectiles.
-    Mejorada para mayor consistencia en los impactos.
-    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=50, damage=20)
+        super().__init__(owner, cooldown=55, damage=18, kickback=12.0, shake=8.0, spread=0.4)
         self.pellets = 8
-        self.spread = 0.5
         
-    def activate(self):
-        if not self.projectile_pool:
-            return False
+    def activate(self, camera=None):
+        if not self.projectile_pool: return False
         
         base_angle = self.owner.angle
-        # Pequeña variación aleatoria en el ángulo base para realismo
-        base_angle += random.uniform(-0.05, 0.05)
         
         for i in range(self.pellets):
-            # Calcular ángulo de cada perdigón distribuido uniformemente
-            # (i / (self.pellets - 1)) va de 0 a 1
-            if self.pellets > 1:
-                factor = i / (self.pellets - 1)
-                offset = (factor - 0.5) * self.spread
-            else:
-                offset = 0
+            factor = i / (self.pellets - 1) if self.pellets > 1 else 0.5
+            offset = (factor - 0.5) * self.base_spread
+            angle = base_angle + offset + random.uniform(-0.05, 0.05)
             
-            angle = base_angle + offset
-            
-            # Ajuste de posición de salida
-            spawn_dist = 10
-            px = self.owner.x + math.cos(base_angle) * spawn_dist
-            py = self.owner.y + math.sin(base_angle) * spawn_dist
+            px = self.owner.x + math.cos(base_angle) * 15
+            py = self.owner.y + math.sin(base_angle) * 15
             
             p = self.projectile_pool.get(
-                px, py, 
-                angle, 
-                speed=15,
-                damage=self.damage, 
-                penetration=2,
-                lifetime=45,
-                image_type='square'
+                px, py, angle, speed=random.uniform(14, 16), 
+                damage=self.damage, penetration=3, lifetime=35, image_type='square'
             )
-            p.color = (255, 100 + random.randint(-20, 20), 0)
+            p.color = (255, random.randint(100, 150), 0)
         return True
 
 class LaserWeapon(Weapon):
-    """
-    Láser: Dispara un rayo instantáneo (Hitscan).
-    Visualmente impactante y daño inmediato.
-    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=0, damage=30)
+        super().__init__(owner, cooldown=0, damage=30, kickback=0, shake=1.0, spread=0)
         self.max_range = 1500
         self.duration = 10
         self.draw_timer = 0
         
     def update(self, dt=1.0):
         super().update(dt)
-        # Reducir temporizador visual
         if self.draw_timer > 0:
             self.draw_timer -= 1 * dt
 
-    def activate(self):
-        # Reiniciar temporizador visual
+    def activate(self, camera=None):
         self.draw_timer = self.duration
-        return True # Devuelve True para confirmar que disparó
+        return True 
 
     def get_beam_info(self):
-        """
-        Retorna la tupla (start_pos, end_pos) si el láser está activo.
-        Usado por GameplayScene para calcular colisiones tipo Raycast.
-        """
         if self.draw_timer > 0:
             end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
             end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
@@ -149,60 +124,42 @@ class LaserWeapon(Weapon):
         return None
 
     def render(self, screen, camera):
-        """Renderizado del efecto visual del láser"""
         if self.draw_timer > 0:
-            # Calcular posiciones en pantalla
-            world_start_x = self.owner.x
-            world_start_y = self.owner.y
-            world_end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
-            world_end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
+            start = camera.apply_coords(self.owner.x, self.owner.y)
             
-            start_pos = camera.apply_coords(world_start_x, world_start_y)
-            end_pos = camera.apply_coords(world_end_x, world_end_y)
+            end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
+            end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
             
-            # Efecto de desvanecimiento (el ancho disminuye con el tiempo)
+            jitter = 2
+            end_x += random.uniform(-jitter, jitter)
+            end_y += random.uniform(-jitter, jitter)
+            
+            end = camera.apply_coords(end_x, end_y)
+            
             progress = self.draw_timer / self.duration
-            width_core = max(1, int(4 * progress))
-            width_glow = max(2, int(10 * progress))
+            width = max(2, int(10 * progress))
             
-            # Dibujar brillo exterior y núcleo interior
-            # Color: Cyan eléctrico / Blanco
-            pygame.draw.line(screen, (0, 100, 100), start_pos, end_pos, width_glow + 4) # Aura oscura
-            pygame.draw.line(screen, (0, 255, 255), start_pos, end_pos, width_glow)     # Brillo
-            pygame.draw.line(screen, (255, 255, 255), start_pos, end_pos, width_core)   # Núcleo
+            pygame.draw.line(screen, (0, 200, 255), start, end, width + 4)
+            pygame.draw.line(screen, (255, 255, 255), start, end, width)
 
 class AssaultRifleWeapon(Weapon):
-    """
-    Rifle de Asalto (AK-47 / M4).
-    Disparo automático rápido con ligera dispersión.
-    """
     def __init__(self, owner):
-        super().__init__(owner, cooldown=8, damage=20)
-        self.spread = 0.1
+        super().__init__(owner, cooldown=7, damage=16, kickback=1.5, shake=3.0, spread=0.05)
+        self.max_spread = 0.35
 
-    def activate(self):
-        if not self.projectile_pool:
-            return False
+    def activate(self, camera=None):
+        if not self.projectile_pool: return False
 
-        # Ángulo base + pequeña variación aleatoria (retroceso)
-        angle = self.owner.angle + random.uniform(-self.spread, self.spread)
+        angle = self.owner.angle + random.uniform(-self.current_spread, self.current_spread)
 
-        # Posición de salida (cañón del arma)
-        spawn_dist = 20
-        px = self.owner.x + math.cos(angle) * spawn_dist
-        py = self.owner.y + math.sin(angle) * spawn_dist
+        px = self.owner.x + math.cos(angle) * 22
+        py = self.owner.y + math.sin(angle) * 22
 
-        # Solicitar proyectil
         p = self.projectile_pool.get(
-            px, py,
-            angle,
-            speed=17,
-            damage=self.damage,
-            penetration=1,
-            lifetime=50,
-            image_type='square'
+            px, py, angle, speed=19, damage=self.damage, 
+            penetration=1, lifetime=60, image_type='square'
         )
+        p.color = (255, 230, 100)
         
-        # Color dorado/amarillo bala
-        p.color = (255, 215, 0) 
+        self.current_spread = min(self.current_spread + 0.04, self.max_spread)
         return True

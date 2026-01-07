@@ -128,7 +128,7 @@ class GameplayScene(Scene):
         self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
         self.player.update(self.dt)
         if mouse_pressed[0]:
-            self.player.attack()
+            self.player.attack(self.camera)
         self.camera.update(self.player, mouse_pos)
 
         # Manejar mantener K presionada para subir oleadas rápidamente
