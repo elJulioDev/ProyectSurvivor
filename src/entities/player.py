@@ -209,11 +209,11 @@ class Player:
     def attack(self, camera=None):
         """Dispara SOLAMENTE el arma seleccionada"""
         if not self.is_alive or self.dash_active:
-            return
+            return False
 
         current_weapon = self.weapons[self.current_weapon_index]
         # Pasamos la cámara al método shoot del arma
-        current_weapon.shoot(camera)
+        return current_weapon.shoot(camera)
 
     def render(self, screen, camera):
         if not self.is_alive:

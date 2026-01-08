@@ -62,7 +62,10 @@ class GameplayScene(Scene):
         # Contador para mantener K presionada
         self.k_hold_counter = 0
 
+        self.crosshair_scale = 1.0
+
     def on_enter(self):
+        pygame.mouse.set_visible(False)
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         self.enemies = []
         for weapon in self.player.weapons:
@@ -84,7 +87,9 @@ class GameplayScene(Scene):
             self.btn_exit.update(mouse_pos)
             if self.btn_continue.is_clicked(event):
                 self.paused = False
+                pygame.mouse.set_visible(False)
             if self.btn_exit.is_clicked(event):
+                pygame.mouse.set_visible(True)
                 pygame.quit()
                 sys.exit()
         
@@ -93,10 +98,12 @@ class GameplayScene(Scene):
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                pygame.mouse.set_visible(True)
                 from scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
             elif event.key == pygame.K_RETURN: 
                 self.paused = not self.paused
+                pygame.mouse.set_visible(self.paused)
             elif event.key == pygame.K_F3:
                 self.show_debug = not self.show_debug
     
@@ -111,6 +118,7 @@ class GameplayScene(Scene):
             return 
         
         if not self.player or not self.player.is_alive:
+            pygame.mouse.set_visible(True)
             from scenes.game_over import GameOverScene
             self.next_scene = GameOverScene(self.game, self.score, self.wave_manager.current_wave)
             return
@@ -128,8 +136,25 @@ class GameplayScene(Scene):
         self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
         self.player.update(self.dt)
         if mouse_pressed[0]:
-            self.player.attack(self.camera)
+            # Detectar disparo exitoso para animar crosshair
+            if self.player.attack(self.camera):
+                current_weapon = self.player.weapons[self.player.current_weapon_index]
+                
+                # === MEJORA 1: Valores más agresivos ===
+                # Base 0.3 (antes 0.05) + Shake * 0.15 (antes 0.05)
+                # Pistola (Shake 2) -> +0.6 (crece 60% instantáneamente)
+                # Escopeta (Shake 8) -> +1.5 (crece 150%)
+                pulse_intensity = 0.3 + (current_weapon.shake_amount * 0.15)
+                
+                # === MEJORA 2: Acumulación (+=) ===
+                # Usamos += para que el retroceso se acumule con fuego rápido (Rifle)
+                self.crosshair_scale += pulse_intensity
+        
+        if self.crosshair_scale > 4.0:
+            self.crosshair_scale = 4.0
+
         self.camera.update(self.player, mouse_pos)
+        self.crosshair_scale += (1.0 - self.crosshair_scale) * 0.08 * self.dt
 
         # Manejar mantener K presionada para subir oleadas rápidamente
         if keys[pygame.K_k]:
@@ -273,6 +298,9 @@ class GameplayScene(Scene):
         if self.wave_manager.is_wave_completed():
             self._render_wave_transition()
         
+        if not self.paused:
+            self._render_crosshair()
+
         if self.paused:
             overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 180))
@@ -285,6 +313,49 @@ class GameplayScene(Scene):
         
         if self.show_debug:
             self._render_debug_info(enemies_rendered)
+    
+    def _render_crosshair(self):
+        mx, my = self.game.get_mouse_pos()
+        
+        # Importamos las configuraciones
+        from settings import (CROSSHAIR_COLOR, CROSSHAIR_SIZE, 
+                              CROSSHAIR_GAP, CROSSHAIR_THICKNESS, CROSSHAIR_DOT_SIZE)
+        
+        # === CAMBIO: Aplicar la escala dinámica ===
+        # Multiplicamos el GAP (espacio) y el SIZE (largo) por nuestra escala
+        current_gap = CROSSHAIR_GAP * self.crosshair_scale
+        current_size = CROSSHAIR_SIZE * self.crosshair_scale
+        
+        # 1. Dibujar el "pixel" del medio (Punto central)
+        dot_rect = pygame.Rect(0, 0, CROSSHAIR_DOT_SIZE, CROSSHAIR_DOT_SIZE)
+        dot_rect.center = (mx, my)
+        pygame.draw.rect(self.screen, CROSSHAIR_COLOR, dot_rect)
+        
+        # 2. Dibujar las 4 líneas usando las dimensiones dinámicas (current_gap y current_size)
+        
+        # Línea Superior
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, 
+                         (mx, my - current_gap - current_size), 
+                         (mx, my - current_gap), 
+                         CROSSHAIR_THICKNESS)
+        
+        # Línea Inferior
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, 
+                         (mx, my + current_gap), 
+                         (mx, my + current_gap + current_size), 
+                         CROSSHAIR_THICKNESS)
+        
+        # Línea Izquierda
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, 
+                         (mx - current_gap - current_size, my), 
+                         (mx - current_gap, my), 
+                         CROSSHAIR_THICKNESS)
+        
+        # Línea Derecha
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, 
+                         (mx + current_gap, my), 
+                         (mx + current_gap + current_size, my), 
+                         CROSSHAIR_THICKNESS)
 
     def _render_grid(self):
         grid_size = 100

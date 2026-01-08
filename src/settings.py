@@ -44,3 +44,9 @@ ENEMY_SPEED = 2
 
 # Juego
 ENEMIES_PER_WAVE = 5
+
+CROSSHAIR_COLOR = (255, 255, 255)
+CROSSHAIR_SIZE = 6       # Largo de las líneas
+CROSSHAIR_GAP = 4        # Espacio entre el punto central y las líneas
+CROSSHAIR_THICKNESS = 2  # Grosor de las líneas
+CROSSHAIR_DOT_SIZE = 2   # Tamaño del punto central (2x2 px se ve mejor que 1x1)
