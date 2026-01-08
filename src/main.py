@@ -6,7 +6,9 @@ def main():
     os.environ['SDL_VIDEO_WINDOW_POS'] = "0,0"
     os.environ['SDL_VIDEO_CENTERED'] = '0'
 
+    pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
+    pygame.mixer.set_num_channels(32)
 
     monitor_info = pygame.display.Info()
     monitor_w = monitor_info.current_w

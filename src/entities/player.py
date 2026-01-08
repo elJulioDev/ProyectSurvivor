@@ -61,6 +61,8 @@ class Player:
         self.last_key_time = 0
         self.double_tap_threshold = 250
 
+        self.last_shot_time = 0
+
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
             current_time = pygame.time.get_ticks()
@@ -212,8 +214,12 @@ class Player:
             return False
 
         current_weapon = self.weapons[self.current_weapon_index]
-        # Pasamos la cámara al método shoot del arma
-        return current_weapon.shoot(camera)
+        
+        did_shoot = current_weapon.shoot(camera)
+        if did_shoot:
+            self.last_shot_time = pygame.time.get_ticks()
+            
+        return did_shoot
 
     def render(self, screen, camera):
         if not self.is_alive:

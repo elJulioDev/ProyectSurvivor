@@ -2,7 +2,19 @@
 Sistema de armas optimizado para Disparo Manual (Top-Down Shooter)
 Estructura limpia: Pistola, Escopeta y Láser.
 """
-import math, random, pygame
+import math, random, pygame, os
+
+def load_sound(filename):
+    path = os.path.join("assets", "sounds", filename)
+    if not os.path.exists(path):
+        path = os.path.join("..", "assets", "sounds", filename)
+    try:
+        sound = pygame.mixer.Sound(path)
+        sound.set_volume(0.2)
+        return sound
+    except Exception as e:
+        print(f"Advertencia: No se pudo cargar el sonido {filename}. Error: {e}")
+        return None
 
 class Weapon:
     def __init__(self, owner, cooldown=60, damage=10, kickback=0, shake=0, spread=0):
@@ -15,6 +27,7 @@ class Weapon:
         self.shake_amount = shake
         self.base_spread = spread
         self.current_spread = spread
+        self.shoot_sound = None
 
     def set_projectile_pool(self, pool):
         """Asigna el pool de proyectiles"""
@@ -34,6 +47,8 @@ class Weapon:
             if self.activate(camera):
                 self.current_cooldown = self.cooldown
                 self._apply_physics(camera)
+                if self.shoot_sound:
+                    self.shoot_sound.play()
                 return True
         return False
 
@@ -55,8 +70,8 @@ class Weapon:
 
 class PistolWeapon(Weapon):
     def __init__(self, owner):
-        super().__init__(owner, cooldown=15, damage=12, kickback=0, shake=2.0, spread=0.02)
-        
+        super().__init__(owner, cooldown=12, damage=12, kickback=0, shake=2.0, spread=0.02)
+        self.shoot_sound = load_sound("pistol_fire.wav")
     def activate(self, camera=None):
         if not self.projectile_pool: return False
         
@@ -79,7 +94,7 @@ class ShotgunWeapon(Weapon):
     def __init__(self, owner):
         super().__init__(owner, cooldown=55, damage=18, kickback=12.0, shake=8.0, spread=0.4)
         self.pellets = 8
-        
+        self.shoot_sound = load_sound("shotgun_fire.wav")
     def activate(self, camera=None):
         if not self.projectile_pool: return False
         
@@ -144,8 +159,9 @@ class LaserWeapon(Weapon):
 
 class AssaultRifleWeapon(Weapon):
     def __init__(self, owner):
-        super().__init__(owner, cooldown=5, damage=20, kickback=0.5, shake=2.0, spread=0.05)
+        super().__init__(owner, cooldown=8, damage=20, kickback=0.5, shake=2.0, spread=0.05)
         self.max_spread = 0.35
+        self.shoot_sound = load_sound("rifle_fire.wav")
 
     def activate(self, camera=None):
         if not self.projectile_pool: return False
