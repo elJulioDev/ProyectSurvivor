@@ -144,7 +144,7 @@ class LaserWeapon(Weapon):
 
 class AssaultRifleWeapon(Weapon):
     def __init__(self, owner):
-        super().__init__(owner, cooldown=5, damage=20, kickback=1.5, shake=3.0, spread=0.05)
+        super().__init__(owner, cooldown=5, damage=20, kickback=0.5, shake=2.0, spread=0.05)
         self.max_spread = 0.35
 
     def activate(self, camera=None):
