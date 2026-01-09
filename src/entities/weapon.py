@@ -5,9 +5,12 @@ Estructura limpia: Pistola, Escopeta y Láser.
 import math, random, pygame, os
 
 def load_sound(filename):
-    path = os.path.join("assets", "sounds", filename)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    path = os.path.join(project_root, "assets", "sounds", filename)
     if not os.path.exists(path):
-        path = os.path.join("..", "assets", "sounds", filename)
+        print(f"Error: El archivo de sonido no existe en: {path}")
+        return None
     try:
         sound = pygame.mixer.Sound(path)
         sound.set_volume(0.2)
@@ -92,7 +95,7 @@ class PistolWeapon(Weapon):
 
 class ShotgunWeapon(Weapon):
     def __init__(self, owner):
-        super().__init__(owner, cooldown=55, damage=18, kickback=12.0, shake=8.0, spread=0.4)
+        super().__init__(owner, cooldown=50, damage=18, kickback=12.0, shake=8.0, spread=0.4)
         self.pellets = 8
         self.shoot_sound = load_sound("shotgun_fire.wav")
     def activate(self, camera=None):
