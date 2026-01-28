@@ -97,22 +97,26 @@ class Enemy:
         return SPRITE_CACHE[key]
     
     def update_ai(self, player_pos, spatial_grid):
-        """ LÓGICA DE MOVIMIENTO OPTIMIZADA (TIME SLICING) """
         if not self.is_alive: return
 
         dx = player_pos[0] - self.x
         dy = player_pos[1] - self.y
         dist_sq = dx*dx + dy*dy
-        dist_to_player = math.sqrt(dist_sq) if dist_sq > 0 else 0.001
         
-        dir_x = dx / dist_to_player
-        dir_y = dy / dist_to_player
-
-        attack_range = self.size * 0.6 + 10
+        # Evita sqrt cuando sea posible
+        attack_range_sq = (self.size * 0.6 + 10) ** 2
+        
+        if dist_sq > 0.0001:
+            inv_dist = 1.0 / math.sqrt(dist_sq)
+            dir_x = dx * inv_dist
+            dir_y = dy * inv_dist
+        else:
+            dir_x, dir_y = 0, 0
+        
         current_move_speed = 0
-        if dist_to_player > attack_range:
+        if dist_sq > attack_range_sq:  # Comparación sin sqrt
             current_move_speed = self.base_speed * self.speed_variance
-            
+        
         push_x, push_y = 0, 0
         
         if spatial_grid:
@@ -120,23 +124,23 @@ class Enemy:
             collision_radius_sq = (self.radius * 2) ** 2 
             
             count = 0
+            max_neighbors = 12 if len(neighbors) > 500 else 8  # Dinámico
+            
             for other in neighbors:
                 if other is self or not other.is_alive: continue
-                if count > 6: break 
+                if count >= max_neighbors: break 
                 
                 odx = self.x - other.x
                 ody = self.y - other.y
                 odist_sq = odx*odx + ody*ody
                 
                 if 0 < odist_sq < collision_radius_sq:
-                    odist = math.sqrt(odist_sq)
-                    overlap = (self.radius * 2) - odist
+                    inv_odist = 1.0 / math.sqrt(odist_sq)  # Una sola sqrt
+                    overlap = (self.radius * 2) - (odist_sq * inv_odist)
+                    push_strength = overlap * 0.04  # Reducido de 0.05
                     
-                    # FUERZA SUAVE (0.05) para permitir enjambre
-                    push_strength = overlap * 0.05 
-                    
-                    push_x += (odx / odist) * push_strength
-                    push_y += (ody / odist) * push_strength
+                    push_x += (odx * inv_odist) * push_strength
+                    push_y += (ody * inv_odist) * push_strength
                     count += 1
         
         self.vx = (dir_x * current_move_speed) + push_x

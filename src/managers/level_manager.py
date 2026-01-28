@@ -118,6 +118,16 @@ class LevelManager:
     def _update_enemies(self, dt):
         """Actualiza todos los enemigos con batching de IA"""
         player_pos = self.player.get_position()
+
+        # Ajuste dinámico del batching
+        enemy_count = len(self.enemies)
+        if enemy_count > 800:
+            self.ai_update_interval = 8
+        elif enemy_count > 400:
+            self.ai_update_interval = 6
+        else:
+            self.ai_update_interval = 4
+
         current_batch = self.frame_counter % self.ai_update_interval
         
         active_enemies = []
@@ -150,13 +160,17 @@ class LevelManager:
             weapon.update(dt=dt)
             
             if isinstance(weapon, LaserWeapon):
-                if weapon.draw_timer >= weapon.duration - 1:
+                if weapon.draw_timer > 0:  # Mientras esté activo
+                    # Aplicar daño cada frame, pero ajustado por dt
                     beam = weapon.get_beam_info()
                     if beam:
                         start, end = beam
+                        laser_damage_per_second = weapon.damage * 6  # 60 FPS base
+                        damage_this_frame = laser_damage_per_second * (dt / 60.0)
+                        
                         for enemy in self.enemies:
                             if enemy.rect.clipline(start, end):
-                                if enemy.take_damage(weapon.damage):
+                                if enemy.take_damage(damage_this_frame):
                                     self.score += enemy.points
                                     self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
     
@@ -213,8 +227,11 @@ class LevelManager:
                 projectile.render(screen, self.camera)
         
         self.enemies_rendered = 0
+        render_margin = 200
+        
         for enemy in self.enemies:
-            if self.camera.is_on_screen(enemy.rect):
+            expanded_rect = enemy.rect.inflate(render_margin * 2, render_margin * 2)
+            if self.camera.is_on_screen(expanded_rect):
                 enemy.render(screen, self.camera)
                 self.enemies_rendered += 1
         
