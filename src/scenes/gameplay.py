@@ -132,7 +132,8 @@ class GameplayScene(Scene):
                 self.level.player,
                 self.level.wave_manager.current_wave,
                 self.level.score,
-                len(self.level.enemies)
+                len(self.level.enemies),
+                self.dt 
             )
         
         if self.level.wave_manager.is_wave_completed():
