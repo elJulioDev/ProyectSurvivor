@@ -86,8 +86,9 @@ class GameplayScene(Scene):
             self.btn_exit.update(mouse_pos)
             return
         
-        if (self.level.wave_manager.is_wave_completed() and 
-            self.level.wave_manager.get_completion_progress() >= 0.95):
+        if self.level.player and self.level.player.pending_level_ups > 0:
+            self.level.player.pending_level_ups -= 1
+            
             from scenes.upgrade import UpgradeScene
             pygame.mouse.set_visible(True)
             self.game.current_scene = UpgradeScene(self.game, self)
@@ -96,10 +97,13 @@ class GameplayScene(Scene):
         if self.level.game_over:
             pygame.mouse.set_visible(True)
             from scenes.game_over import GameOverScene
+            
+            # --- CORRECCIÓN AQUÍ ---
+            # Antes buscaba wave_manager.current_wave, ahora pide el tiempo
             self.next_scene = GameOverScene(
                 self.game,
                 self.level.score,
-                self.level.wave_manager.current_wave
+                self.level.spawn_manager.get_time_string()
             )
             return
         
@@ -135,16 +139,15 @@ class GameplayScene(Scene):
         self.level.render_world(self.screen)
         
         if self.hud and self.level.player:
+            time_str = self.level.spawn_manager.get_time_string()
+            
             self.hud.render(
                 self.level.player,
-                self.level.wave_manager.current_wave,
+                time_str,
                 self.level.score,
                 len(self.level.enemies),
                 self.dt 
             )
-        
-        if self.level.wave_manager.is_wave_completed():
-            self._render_wave_transition()
         
         if not self.paused:
             self._render_crosshair()
@@ -188,23 +191,6 @@ class GameplayScene(Scene):
                          (mx + current_gap, my),
                          (mx + current_gap + current_size, my),
                          CROSSHAIR_THICKNESS)
-    
-    def _render_wave_transition(self):
-        """Renderiza la transición entre oleadas"""
-        progress = self.level.wave_manager.get_completion_progress()
-        alpha = int(255 * (1 - abs(progress - 0.5) * 2))
-        
-        surf = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-        font = pygame.font.Font(None, 64)
-        
-        text = font.render(
-            f"Oleada {self.level.wave_manager.current_wave - 1} Completada!",
-            True,
-            (0, 255, 0, alpha)
-        )
-        text_rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
-        surf.blit(text, text_rect)
-        self.screen.blit(surf, (0, 0))
     
     def _render_pause_menu(self):
         """Renderiza el menú de pausa"""

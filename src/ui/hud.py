@@ -32,12 +32,31 @@ class HUD:
         self.COLOR_CYAN = (0, 255, 255)      # Cyan flat
         self.COLOR_GRAY_DARK = (40, 40, 40)  # Gris para fondos inactivos
         
-    def render(self, player, wave=1, score=0, enemies_alive=0, dt=1.0):
+    def render(self, player, wave_time_str, score=0, enemies_alive=0, dt=1.0):
         if not player: return
         self._update_animations(player, dt)
         self._render_status_bars(player, dt)
-        self._render_wave_info(wave)
+        self._render_xp_bar(player)
+        self._render_wave_info(wave_time_str)
         self._render_stats(score, enemies_alive)
+
+    def _render_xp_bar(self, player):
+        # Barra XP en la parte superior, estilo VS
+        bar_h = 10
+        bar_w = self.screen_width
+        
+        # Fondo
+        pygame.draw.rect(self.screen, (20, 20, 40), (0, 0, bar_w, bar_h))
+        
+        # Progreso
+        pct = player.experience / player.experience_next_level
+        fill_w = int(bar_w * pct)
+        if fill_w > 0:
+            pygame.draw.rect(self.screen, (50, 150, 255), (0, 0, fill_w, bar_h))
+            
+        # Nivel en el centro
+        txt = self.font_stats.render(f"LVL {player.level}", True, self.COLOR_WHITE)
+        self.screen.blit(txt, (bar_w//2 - txt.get_width()//2, 15))
     
     def _update_animations(self, player, dt):
         # Inicialización
@@ -132,8 +151,8 @@ class HUD:
         if dash_fill_w > 0:
             pygame.draw.rect(self.screen, dash_c, (bar_x, dash_y, dash_fill_w, dash_h))
 
-    def _render_wave_info(self, wave):
-        txt = f"WAVE {wave}"
+    def _render_wave_info(self, time_str):
+        txt = f"{time_str}"
         # Sombra sólida sin difuminado
         shadow = self.font_wave.render(txt, True, self.COLOR_BLACK)
         surf = self.font_wave.render(txt, True, self.COLOR_WHITE)

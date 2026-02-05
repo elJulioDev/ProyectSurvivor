@@ -67,7 +67,29 @@ class Player:
         self.global_damage_mult = 1.0
         self.global_cooldown_mult = 1.0
         self.health_regen = 0.0  # HP por segundo
+
+        # SISTEMA DE NIVEL
+        self.level = 1
+        self.experience = 0
+        self.experience_next_level = 50 # XP base necesaria
+        self.pending_level_ups = 0 # Por si sube 2 niveles de golpe
+
+    def gain_experience(self, amount):
+        if not self.is_alive: return False
         
+        self.experience += amount
+        leveled_up = False
+        
+        while self.experience >= self.experience_next_level:
+            self.experience -= self.experience_next_level
+            self.level += 1
+            self.pending_level_ups += 1
+            # Curva de experiencia: cada nivel cuesta 20% más
+            self.experience_next_level = int(self.experience_next_level * 1.2)
+            leveled_up = True
+            
+        return leveled_up
+
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_1 and len(self.weapons) > 0:

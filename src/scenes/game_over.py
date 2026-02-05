@@ -6,10 +6,10 @@ from scenes.scene import Scene
 from settings import BLACK, WHITE, WINDOW_WIDTH, WINDOW_HEIGHT
 
 class GameOverScene(Scene):
-    def __init__(self, game, final_score, final_wave):
+    def __init__(self, game, final_score, final_time_str):
         super().__init__(game)
         self.final_score = final_score
-        self.final_wave = final_wave
+        self.final_time_str = final_time_str
         
         self.font_big = pygame.font.Font(None, 84)
         self.font_medium = pygame.font.Font(None, 48)
@@ -68,16 +68,17 @@ class GameOverScene(Scene):
         self.screen.blit(score_shadow, shadow_rect)
         self.screen.blit(score_text, score_rect)
         
-        # Oleada alcanzada
-        wave_label = self.font_small.render("Oleada Alcanzada", True, (150, 150, 150))
+        # Tiempo Sobrevivido (Cambio aquí)
+        wave_label = self.font_small.render("Tiempo Sobrevivido", True, (150, 150, 150))
         wave_label_rect = wave_label.get_rect(center=(WINDOW_WIDTH//2, stats_y + 90))
         self.screen.blit(wave_label, wave_label_rect)
         
-        wave_text = self.font_medium.render(str(self.final_wave), True, (255, 200, 0))
+        # Usamos el string de tiempo que pasamos
+        wave_text = self.font_medium.render(str(self.final_time_str), True, (255, 200, 0))
         wave_rect = wave_text.get_rect(center=(WINDOW_WIDTH//2, stats_y + 130))
         
-        # Sombra de la oleada
-        wave_shadow = self.font_medium.render(str(self.final_wave), True, BLACK)
+        # Sombra del tiempo
+        wave_shadow = self.font_medium.render(str(self.final_time_str), True, BLACK)
         shadow_rect = wave_shadow.get_rect(center=(wave_rect.centerx + 2, wave_rect.centery + 2))
         self.screen.blit(wave_shadow, shadow_rect)
         self.screen.blit(wave_text, wave_rect)

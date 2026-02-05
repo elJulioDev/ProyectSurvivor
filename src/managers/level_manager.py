@@ -7,10 +7,11 @@ from settings import WORLD_WIDTH, WORLD_HEIGHT
 from entities.player import Player
 from entities.particle import ParticleSystem
 from entities.weapon import LaserWeapon
-from utils.wave_manager import WaveManager
 from utils.camera import Camera
 from utils.object_pool import ProjectilePool, ParticlePool
 from utils.spatial_grid import SpatialGrid
+from managers.spawn_manager import SpawnManager
+from entities.experience_gem import ExperienceGem
 
 class LevelManager:
     """
@@ -25,7 +26,8 @@ class LevelManager:
         self.particle_pool = ParticlePool(capacity=800)
         self.spatial_grid = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         self.particle_system = ParticleSystem()
-        self.wave_manager = WaveManager()
+        self.spawn_manager = SpawnManager()
+        self.gems = []
         self.camera = Camera(WORLD_WIDTH, WORLD_HEIGHT)
         self.player = None
         self.enemies = []
@@ -54,8 +56,8 @@ class LevelManager:
         self.blood_surface.fill((0, 0, 0, 0))
         self.score = 0
         self.game_over = False
-        self.wave_manager.reset()
-        self.wave_manager.start_wave()
+        self.gems.clear()
+        self.spawn_manager = SpawnManager()
         self.hit_particle_cooldown = 0
         self.frame_counter = 0
         
@@ -106,9 +108,16 @@ class LevelManager:
         self._update_weapons(dt)
         self._update_projectiles(dt)
         
-        new_enemy = self.wave_manager.update(self.enemies)
+        new_enemy = self.spawn_manager.update(dt, len(self.enemies))
         if new_enemy:
             self.enemies.append(new_enemy)
+
+        for i in range(len(self.gems) - 1, -1, -1):
+            gem = self.gems[i]
+            gem.update(self.player.get_position(), dt)
+            if self.player.rect.colliderect(gem.rect):
+                self.player.gain_experience(gem.xp_value)
+                self.gems.pop(i)
         
         self.particle_pool.update_all(dt)
         self.particle_pool.bake_static_blood(self.blood_surface)
@@ -160,12 +169,11 @@ class LevelManager:
             weapon.update(dt=dt)
             
             if isinstance(weapon, LaserWeapon):
-                if weapon.draw_timer > 0:  # Mientras esté activo
-                    # Aplicar daño cada frame, pero ajustado por dt
+                if weapon.draw_timer > 0:
                     beam = weapon.get_beam_info()
                     if beam:
                         start, end = beam
-                        laser_damage_per_second = weapon.damage * 6  # 60 FPS base
+                        laser_damage_per_second = weapon.damage * 6
                         damage_this_frame = laser_damage_per_second * (dt / 60.0)
                         
                         for enemy in self.enemies:
@@ -173,6 +181,9 @@ class LevelManager:
                                 if enemy.take_damage(damage_this_frame):
                                     self.score += enemy.points
                                     self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
+                                    xp_amount = enemy.points
+                                    gem = ExperienceGem(enemy.x, enemy.y, xp_amount)
+                                    self.gems.append(gem)
     
     def _update_projectiles(self, dt):
         """Actualiza proyectiles y detecta colisiones"""
@@ -192,15 +203,17 @@ class LevelManager:
                     
                     self.particle_system.create_blood_splatter(
                         hit_enemy.x, hit_enemy.y,
-                        direction_vector=direction,
-                        force=1.5,
-                        count=6
+                        direction_vector=direction, force=1.5, count=6
                     )
                     self.hit_particle_cooldown = 1 if self.particle_system.quality == 2 else 4
                 
                 if hit_enemy.take_damage(projectile.damage):
                     self.score += hit_enemy.points
                     self.particle_system.create_viscera_explosion(hit_enemy.x, hit_enemy.y)
+                    
+                    xp_amount = hit_enemy.points
+                    gem = ExperienceGem(hit_enemy.x, hit_enemy.y, xp_amount)
+                    self.gems.append(gem)
             
             if not projectile.is_alive:
                 self.projectile_pool.return_to_pool(projectile)
@@ -221,6 +234,9 @@ class LevelManager:
         screen.blit(self.blood_surface, (0, 0), area=area_rect)
         
         rendered_floor = self.particle_pool.render_all(screen, self.camera, layer='floor')
+
+        for gem in self.gems:
+            gem.render(screen, self.camera)
         
         for projectile in self.projectile_pool.active:
             if self.camera.is_on_screen(projectile.rect):

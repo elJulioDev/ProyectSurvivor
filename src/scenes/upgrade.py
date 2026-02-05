@@ -1,5 +1,5 @@
 """
-Escena de Mejoras entre Oleadas (Vampire Survivors style)
+Escena de Mejoras (Level Up)
 """
 import pygame
 import random
@@ -19,7 +19,7 @@ class UpgradeScene(Scene):
         self.options = self._select_upgrades()
         self.buttons = []
         
-        # Crear botones
+        # Crear botones para las opciones
         for i, opt in enumerate(self.options):
             upgrade = UPGRADES[opt]
             x = WINDOW_WIDTH // 2
@@ -35,20 +35,24 @@ class UpgradeScene(Scene):
         available = []
         
         for key, upg in UPGRADES.items():
-            # Filtrar mejoras ya desbloqueadas que no son stackeables
+            # Filtrar mejoras de dash si ya se tiene
             if upg['type'] == 'unlock' and key == 'dash':
                 if not player.dash_unlocked:
                     available.append(key)
+            # Filtrar armas ya desbloqueadas
             elif upg['type'] == 'unlock_weapon':
                 if upg['weapon_class'] not in player.unlocked_weapons:
                     available.append(key)
+            # Mejoras stackeables (siempre disponibles)
             elif upg.get('stackable', False):
                 available.append(key)
         
-        # Si hay menos de 3, rellenar con mejoras stackeables
+        # Si hay menos de 3 opciones, rellenar con duplicados (o manejar error)
         if len(available) < 3:
             stackables = [k for k, v in UPGRADES.items() if v.get('stackable', False)]
-            available.extend(stackables * 3)
+            if stackables:
+                while len(available) < 3:
+                    available.append(random.choice(stackables))
         
         return random.sample(available, min(3, len(available)))
     
@@ -58,24 +62,22 @@ class UpgradeScene(Scene):
         for btn in self.buttons:
             btn.update(mouse_pos)
             
-            # Verificamos el clic usando el método de la clase Button
             if btn.is_clicked(event):
-                self._apply_upgrade(btn.action_value) # Usamos action_value en lugar de upgrade_type
+                self._apply_upgrade(btn.action_value)
                 
-                # Resetear estado para volver al juego
+                # Volver al juego inmediatamente
                 pygame.mouse.set_visible(False)
                 self.game.current_scene = self.gameplay_scene
-                self.gameplay_scene.level.wave_manager.start_wave()
+                # NOTA: Ya no llamamos a start_wave() porque el spawn es continuo
     
     def _apply_upgrade(self, key):
-        """Aplica la mejora seleccionada"""
+        """Aplica la mejora seleccionada al jugador"""
         player = self.gameplay_scene.level.player
         upg = UPGRADES[key]
         projectile_pool = self.gameplay_scene.level.projectile_pool
         
         if upg['type'] == 'unlock' and key == 'dash':
             player.dash_unlocked = True
-            print("🎮 Dash desbloqueado!")
         
         elif upg['type'] == 'stat':
             stat_name = upg['stat_name']
@@ -85,7 +87,7 @@ class UpgradeScene(Scene):
                 player.max_speed *= value
             elif stat_name == 'max_health':
                 player.max_health += value
-                player.health += value  # Curar también
+                player.health += value
             elif stat_name == 'health_regen':
                 player.health_regen += value
         
@@ -107,27 +109,27 @@ class UpgradeScene(Scene):
             btn.update(mouse_pos)
     
     def render(self):
-        # Renderizar el juego de fondo (congelado)
+        # 1. Renderizar el juego de fondo (congelado)
         self.gameplay_scene.render()
         
-        # Overlay oscuro
+        # 2. Overlay oscuro
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 200))
         self.screen.blit(overlay, (0, 0))
         
-        # Título
-        wave_num = self.gameplay_scene.level.wave_manager.current_wave - 1
+        # 3. Título (CORREGIDO: Usamos Nivel en vez de Oleada)
+        player_level = self.gameplay_scene.level.player.level
         title = self.font_title.render(
-            f"OLEADA {wave_num} COMPLETADA", True, (0, 255, 100)
+            f"¡NIVEL {player_level} ALCANZADO!", True, (255, 215, 0)
         )
         title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 120))
         self.screen.blit(title, title_rect)
         
-        # Botones con descripciones
+        # 4. Botones
         for btn in self.buttons:
             btn.draw(self.screen)
             
-            # Descripción debajo del botón - Usar btn.rect.center en lugar de btn.x/btn.y
+            # Descripción centrada bajo el botón
             desc_surf = self.font_desc.render(btn.desc, True, (200, 200, 200))
             desc_rect = desc_surf.get_rect(center=(btn.rect.centerx, btn.rect.centery + 50))
             self.screen.blit(desc_surf, desc_rect)
