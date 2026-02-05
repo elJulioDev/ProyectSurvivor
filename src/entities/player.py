@@ -30,14 +30,10 @@ class Player:
         self.damage_flash = 0
         self.invulnerable_frames = 0
         
-        # SISTEMA DE ARMAS
-        self.weapons = [
-            PistolWeapon(self),
-            ShotgunWeapon(self),
-            AssaultRifleWeapon(self),
-            LaserWeapon(self)
-        ]
+        # SISTEMA DE ARMAS - SOLO PISTOLA AL INICIO
+        self.weapons = [PistolWeapon(self)]
         self.current_weapon_index = 0
+        self.unlocked_weapons = {'PistolWeapon'}  # Nuevo: tracking de armas desbloqueadas
         
         hitbox_size = self.size - 4
         self.rect = pygame.Rect(
@@ -48,6 +44,7 @@ class Player:
         )
         
         # SISTEMA DE DASH MEJORADO
+        self.dash_unlocked = False
         self.dash_active = False
         self.dash_timer = 0
         self.dash_duration = 12  # Frames
@@ -65,17 +62,21 @@ class Player:
         self.max_ghosts = 5
         
         self.last_shot_time = 0
+
+        # STATS PARA MEJORAS
+        self.global_damage_mult = 1.0
+        self.global_cooldown_mult = 1.0
+        self.health_regen = 0.0  # HP por segundo
         
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
-            # CAMBIO DE ARMAS
-            if event.key == pygame.K_1:
+            if event.key == pygame.K_1 and len(self.weapons) > 0:
                 self.current_weapon_index = 0
-            elif event.key == pygame.K_2:
+            elif event.key == pygame.K_2 and len(self.weapons) > 1:
                 self.current_weapon_index = 1
-            elif event.key == pygame.K_3:
+            elif event.key == pygame.K_3 and len(self.weapons) > 2:
                 self.current_weapon_index = 2
-            elif event.key == pygame.K_4:
+            elif event.key == pygame.K_4 and len(self.weapons) > 3:
                 self.current_weapon_index = 3
             
             # CURACIÓN
@@ -89,7 +90,9 @@ class Player:
     
     def _attempt_dash(self):
         """Intenta ejecutar el dash con sistema de buffering"""
-        # Si está en cooldown, activar buffer
+        if not self.dash_unlocked:
+            return
+        
         if self.dash_cooldown_timer > 0:
             self.dash_buffer_timer = self.dash_buffer_duration
             return
@@ -185,11 +188,33 @@ class Player:
         dy = mouse_pos[1] - screen_player_y
         
         self.angle = math.atan2(dy, dx)
+
+    def add_weapon(self, weapon_class, projectile_pool):
+        """Añade una nueva arma desbloqueada"""
+        from entities.weapon import (ShotgunWeapon, LaserWeapon, 
+                                      AssaultRifleWeapon)
+        
+        weapon_map = {
+            'ShotgunWeapon': ShotgunWeapon,
+            'AssaultRifleWeapon': AssaultRifleWeapon,
+            'LaserWeapon': LaserWeapon
+        }
+        
+        if weapon_class in weapon_map and weapon_class not in self.unlocked_weapons:
+            new_weapon = weapon_map[weapon_class](self)
+            new_weapon.set_projectile_pool(projectile_pool)
+            self.weapons.append(new_weapon)
+            self.unlocked_weapons.add(weapon_class)
+            print(f"✅ Arma desbloqueada y lista: {weapon_class}")
     
     def update(self, dt=1.0):
         """Actualiza el estado del jugador"""
         if not self.is_alive:
             return
+        
+        if self.health_regen > 0 and self.health < self.max_health:
+            self.health += self.health_regen * dt / 60.0  # Convertir a por-frame
+            self.health = min(self.health, self.max_health)
         
         # Actualizar cooldown del dash
         if self.dash_cooldown_timer > 0:
@@ -282,6 +307,12 @@ class Player:
         if not self.is_alive or self.dash_active:
             return False
         
+        if self.current_weapon_index >= len(self.weapons):
+            self.current_weapon_index = 0
+        
+        if len(self.weapons) == 0:
+            return False
+        
         current_weapon = self.weapons[self.current_weapon_index]
         did_shoot = current_weapon.shoot(camera)
         
@@ -289,7 +320,7 @@ class Player:
             self.last_shot_time = pygame.time.get_ticks()
         
         return did_shoot
-    
+
     def render(self, screen, camera):
         """Renderiza el jugador con efectos mejorados"""
         if not self.is_alive:

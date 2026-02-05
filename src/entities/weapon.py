@@ -38,7 +38,8 @@ class Weapon:
 
     def update(self, dt=1.0):
         if self.current_cooldown > 0:
-            self.current_cooldown -= 1 * dt
+            cooldown_mult = getattr(self.owner, 'global_cooldown_mult', 1.0)
+            self.current_cooldown -= 1 * dt / cooldown_mult
 
         if self.current_spread > self.base_spread:
             self.current_spread -= 0.01 * dt
@@ -75,6 +76,7 @@ class PistolWeapon(Weapon):
     def __init__(self, owner):
         super().__init__(owner, cooldown=12, damage=12, kickback=0, shake=2.0, spread=0.02)
         self.shoot_sound = load_sound("pistol_fire.wav")
+    
     def activate(self, camera=None):
         if not self.projectile_pool: return False
         
@@ -83,9 +85,11 @@ class PistolWeapon(Weapon):
         spawn_dist = 18
         px = self.owner.x + math.cos(angle) * spawn_dist
         py = self.owner.y + math.sin(angle) * spawn_dist
+        damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
+        final_damage = int(self.damage * damage_mult)
         
         p = self.projectile_pool.get(
-            px, py, angle, speed=16, damage=self.damage, 
+            px, py, angle, speed=16, damage=final_damage,
             penetration=1, image_type='circle'
         )
         p.color = (0, 255, 255)
@@ -110,10 +114,12 @@ class ShotgunWeapon(Weapon):
             
             px = self.owner.x + math.cos(base_angle) * 15
             py = self.owner.y + math.sin(base_angle) * 15
+            damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
+            final_damage = int(self.damage * damage_mult)
             
             p = self.projectile_pool.get(
                 px, py, angle, speed=random.uniform(14, 16), 
-                damage=self.damage, penetration=3, lifetime=35, image_type='square'
+                damage=final_damage, penetration=3, lifetime=35, image_type='square'
             )
             p.color = (255, random.randint(100, 150), 0)
         return True
@@ -173,9 +179,11 @@ class AssaultRifleWeapon(Weapon):
 
         px = self.owner.x + math.cos(angle) * 22
         py = self.owner.y + math.sin(angle) * 22
+        damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
+        final_damage = int(self.damage * damage_mult)
 
         p = self.projectile_pool.get(
-            px, py, angle, speed=19, damage=self.damage, 
+            px, py, angle, speed=19, damage=final_damage, 
             penetration=1, lifetime=60, image_type='square'
         )
         p.color = (255, 230, 100)

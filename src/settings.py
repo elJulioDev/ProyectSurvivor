@@ -50,3 +50,77 @@ CROSSHAIR_SIZE = 6       # Largo de las líneas
 CROSSHAIR_GAP = 4        # Espacio entre el punto central y las líneas
 CROSSHAIR_THICKNESS = 2  # Grosor de las líneas
 CROSSHAIR_DOT_SIZE = 2   # Tamaño del punto central (2x2 px se ve mejor que 1x1)
+
+# ===== SISTEMA DE MEJORAS =====
+UPGRADES = {
+    # STATS DEL JUGADOR
+    'dash': {
+        'name': 'Dash Tactical',
+        'desc': 'Desbloquea el dash (Ctrl)',
+        'type': 'unlock',
+        'rarity': 'rare'
+    },
+    'speed': {
+        'name': 'Velocidad',
+        'desc': '+10% velocidad de movimiento',
+        'type': 'stat',
+        'stat_name': 'max_speed',
+        'value': 1.1,
+        'stackable': True
+    },
+    'health': {
+        'name': 'Vitalidad',
+        'desc': '+20 HP máximo',
+        'type': 'stat',
+        'stat_name': 'max_health',
+        'value': 20,
+        'stackable': True
+    },
+    'regen': {
+        'name': 'Regeneración',
+        'desc': '+0.5 HP/segundo',
+        'type': 'stat',
+        'stat_name': 'health_regen',
+        'value': 0.5,
+        'stackable': True
+    },
+    
+    # ARMAS
+    'weapon_damage': {
+        'name': 'Fuerza',
+        'desc': '+15% daño de armas',
+        'type': 'weapon',
+        'stat_name': 'global_damage_mult',
+        'value': 1.15,
+        'stackable': True
+    },
+    'fire_rate': {
+        'name': 'Cadencia',
+        'desc': '+10% velocidad de disparo',
+        'type': 'weapon',
+        'stat_name': 'global_cooldown_mult',
+        'value': 0.9,
+        'stackable': True
+    },
+    'unlock_shotgun': {
+        'name': 'Escopeta',
+        'desc': 'Desbloquea la escopeta (Tecla 2)',
+        'type': 'unlock_weapon',
+        'weapon_class': 'ShotgunWeapon',
+        'rarity': 'rare'
+    },
+    'unlock_rifle': {
+        'name': 'Rifle de Asalto',
+        'desc': 'Desbloquea el rifle (Tecla 3)',
+        'type': 'unlock_weapon',
+        'weapon_class': 'AssaultRifleWeapon',
+        'rarity': 'rare'
+    },
+    'unlock_laser': {
+        'name': 'Láser',
+        'desc': 'Desbloquea el láser (Tecla 4)',
+        'type': 'unlock_weapon',
+        'weapon_class': 'LaserWeapon',
+        'rarity': 'legendary'
+    }
+}

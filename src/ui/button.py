@@ -19,6 +19,7 @@ class Button:
         self.hover_color = hover_color
         self.border_color = border_color
         self.is_hovered = False
+        self.action_value = None
 
     def update(self, mouse_pos):
         """Actualiza el estado de hover basado en la posición del mouse (virtual)"""

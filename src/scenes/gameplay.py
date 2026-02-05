@@ -86,6 +86,13 @@ class GameplayScene(Scene):
             self.btn_exit.update(mouse_pos)
             return
         
+        if (self.level.wave_manager.is_wave_completed() and 
+            self.level.wave_manager.get_completion_progress() >= 0.95):
+            from scenes.upgrade import UpgradeScene
+            pygame.mouse.set_visible(True)
+            self.game.current_scene = UpgradeScene(self.game, self)
+            return
+        
         if self.level.game_over:
             pygame.mouse.set_visible(True)
             from scenes.game_over import GameOverScene
