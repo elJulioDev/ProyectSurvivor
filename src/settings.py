@@ -13,10 +13,10 @@ WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
 # Configuración del Mundo
-WORLD_WIDTH = 2400
-WORLD_HEIGHT = 1800
+WORLD_WIDTH = 2400 * 2
+WORLD_HEIGHT = 1800 * 2
 
-FPS = 60
+FPS = 160
 TITLE = "ProyectSurvivor"
 
 # Colores (RGB)

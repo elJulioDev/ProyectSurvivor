@@ -35,21 +35,17 @@ class Enemy:
         self.hitbox_padding = 10
         self.hitbox_total = self.size + self.hitbox_padding
         
-        # Generamos (o recuperamos) las DOS imágenes
         self.image, self.flash_image = self._get_cached_sprite(self.size, self.hitbox_total, self.color)
         
         self.rect = pygame.Rect(0, 0, self.hitbox_total, self.hitbox_total)
         self.rect.center = (self.x, self.y)
         
-        # FÍSICA SUAVE (Radio un poco menor para permitir overlap visual)
         self.radius = self.size * 0.40 
         self.speed_variance = random.uniform(0.9, 1.1)
         
-        # Velocidad calculada (Batching)
         self.vx = 0
         self.vy = 0
 
-        # Estado
         self.is_alive = True
         self.attack_cooldown = 0
         self.attack_delay = 60
@@ -63,15 +59,52 @@ class Enemy:
         self.bleed_decay = 0.3
         self.bleed_drip_cooldown = 0
 
+    def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None):
+        """
+        Reutiliza este objeto enemigo en una nueva posición con estadísticas frescas.
+        Evita crear un nuevo objeto en memoria (estilo Vampire Survivors).
+        Si enemy_type es None, mantiene el tipo actual.
+        """
+        if enemy_type and enemy_type != self.enemy_type:
+            self.enemy_type = enemy_type
+            type_data = self.TYPES[enemy_type]
+            self.size = int(ENEMY_SIZE * type_data['size_mult'])
+            self.color = type_data['color']
+            self.damage = type_data['damage']
+            self.points = type_data['points']
+            self.hitbox_total = self.size + self.hitbox_padding
+            self.radius = self.size * 0.40
+            # Actualizar sprites del nuevo tipo
+            self.image, self.flash_image = self._get_cached_sprite(self.size, self.hitbox_total, self.color)
+            self.rect = pygame.Rect(0, 0, self.hitbox_total, self.hitbox_total)
+        else:
+            type_data = self.TYPES[self.enemy_type]
+
+        # Resetear posición
+        self.x = x
+        self.y = y
+        self.rect.center = (int(x), int(y))
+
+        # Resetear estadísticas vitales
+        self.base_speed = ENEMY_SPEED * speed_multiplier * type_data['speed_mult']
+        self.max_health = type_data['health']
+        self.health = self.max_health
+        self.speed_variance = random.uniform(0.9, 1.1)
+
+        # Resetear estado
+        self.is_alive = True
+        self.vx = 0
+        self.vy = 0
+        self.knockback_x = 0
+        self.knockback_y = 0
+        self.damage_flash = 0
+        self.bleed_intensity = 0.0
+        self.bleed_drip_cooldown = 0
+        self.attack_cooldown = 0
+
     def _get_cached_sprite(self, size, total_size, color):
-        """
-        Genera dos sprites:
-        1. Normal: Tu diseño original.
-        2. Flash: Cuerpo BLANCO, pero bordes y centro oscuros (para el efecto de daño).
-        """
         key = (size, total_size, color)
         if key not in SPRITE_CACHE:
-            # PREPARACIÓN COMÚN
             offset = (total_size - size) // 2
             draw_rect = pygame.Rect(offset, offset, size, size)
             border_color = tuple(max(0, c - 50) for c in color)
@@ -80,13 +113,11 @@ class Enemy:
             c_pos = offset + (size - center_size) // 2
             center_rect = (c_pos, c_pos, center_size, center_size)
 
-            # IMAGEN NORMAL
             surf = pygame.Surface((total_size, total_size), pygame.SRCALPHA)
             pygame.draw.rect(surf, color, draw_rect)
             pygame.draw.rect(surf, border_color, draw_rect, 2)
             pygame.draw.rect(surf, border_color, center_rect)
             
-            # IMAGEN FLASH (DAÑO)
             surf_flash = pygame.Surface((total_size, total_size), pygame.SRCALPHA)
             pygame.draw.rect(surf_flash, (255, 255, 255), draw_rect)
             pygame.draw.rect(surf_flash, border_color, draw_rect, 2)
@@ -103,7 +134,6 @@ class Enemy:
         dy = player_pos[1] - self.y
         dist_sq = dx*dx + dy*dy
         
-        # Evita sqrt cuando sea posible
         attack_range_sq = (self.size * 0.6 + 10) ** 2
         
         if dist_sq > 0.0001:
@@ -114,7 +144,7 @@ class Enemy:
             dir_x, dir_y = 0, 0
         
         current_move_speed = 0
-        if dist_sq > attack_range_sq:  # Comparación sin sqrt
+        if dist_sq > attack_range_sq:
             current_move_speed = self.base_speed * self.speed_variance
         
         push_x, push_y = 0, 0
@@ -124,7 +154,7 @@ class Enemy:
             collision_radius_sq = (self.radius * 2) ** 2 
             
             count = 0
-            max_neighbors = 12 if len(neighbors) > 500 else 8  # Dinámico
+            max_neighbors = 12 if len(neighbors) > 500 else 8
             
             for other in neighbors:
                 if other is self or not other.is_alive: continue
@@ -135,9 +165,9 @@ class Enemy:
                 odist_sq = odx*odx + ody*ody
                 
                 if 0 < odist_sq < collision_radius_sq:
-                    inv_odist = 1.0 / math.sqrt(odist_sq)  # Una sola sqrt
+                    inv_odist = 1.0 / math.sqrt(odist_sq)
                     overlap = (self.radius * 2) - (odist_sq * inv_odist)
-                    push_strength = overlap * 0.04  # Reducido de 0.05
+                    push_strength = overlap * 0.04
                     
                     push_x += (odx * inv_odist) * push_strength
                     push_y += (ody * inv_odist) * push_strength

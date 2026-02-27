@@ -30,7 +30,6 @@ class GameplayScene(Scene):
         self.last_pulse_time = 0
     
     def on_enter(self):
-        """Inicializa el nivel al entrar a la escena"""
         pygame.mouse.set_visible(False)
         self.level.initialize()
         self.paused = False
@@ -38,13 +37,11 @@ class GameplayScene(Scene):
         self.crosshair_scale = 1.0
     
     def on_exit(self):
-        """Se llama cuando salimos de la escena (al Menú o Game Over)"""
         if self.level:
             self.level.cleanup()
         pygame.mouse.set_visible(True)
     
     def handle_events(self, event):
-        """Maneja eventos de input"""
         if self.paused:
             mouse_pos = self.game.get_mouse_pos()
             self.btn_continue.update(mouse_pos)
@@ -76,7 +73,6 @@ class GameplayScene(Scene):
                 self.show_debug = not self.show_debug
     
     def update(self):
-        """Actualiza la escena"""
         raw_dt = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
         self.dt = min(raw_dt, 3.0)
         
@@ -88,7 +84,6 @@ class GameplayScene(Scene):
         
         if self.level.player and self.level.player.pending_level_ups > 0:
             self.level.player.pending_level_ups -= 1
-            
             from scenes.upgrade import UpgradeScene
             pygame.mouse.set_visible(True)
             self.game.current_scene = UpgradeScene(self.game, self)
@@ -97,9 +92,6 @@ class GameplayScene(Scene):
         if self.level.game_over:
             pygame.mouse.set_visible(True)
             from scenes.game_over import GameOverScene
-            
-            # --- CORRECCIÓN AQUÍ ---
-            # Antes buscaba wave_manager.current_wave, ahora pide el tiempo
             self.next_scene = GameOverScene(
                 self.game,
                 self.level.score,
@@ -115,7 +107,6 @@ class GameplayScene(Scene):
         self._update_crosshair(mouse_pressed)
     
     def _update_crosshair(self, mouse_pressed):
-        """Actualiza la animación del crosshair"""
         if not self.level.player:
             return
 
@@ -133,14 +124,11 @@ class GameplayScene(Scene):
         self.crosshair_scale += (1.0 - self.crosshair_scale) * 0.08 * self.dt
     
     def render(self):
-        """Renderiza la escena completa"""
         self.screen.fill(BLACK)
-        
         self.level.render_world(self.screen)
         
         if self.hud and self.level.player:
             time_str = self.level.spawn_manager.get_time_string()
-            
             self.hud.render(
                 self.level.player,
                 time_str,
@@ -159,7 +147,6 @@ class GameplayScene(Scene):
             self._render_debug_info()
     
     def _render_crosshair(self):
-        """Renderiza el crosshair dinámico"""
         mx, my = self.game.get_mouse_pos()
         
         from settings import (CROSSHAIR_COLOR, CROSSHAIR_SIZE,
@@ -174,26 +161,18 @@ class GameplayScene(Scene):
         
         pygame.draw.line(self.screen, CROSSHAIR_COLOR,
                          (mx, my - current_gap - current_size),
-                         (mx, my - current_gap),
-                         CROSSHAIR_THICKNESS)
-        
+                         (mx, my - current_gap), CROSSHAIR_THICKNESS)
         pygame.draw.line(self.screen, CROSSHAIR_COLOR,
                          (mx, my + current_gap),
-                         (mx, my + current_gap + current_size),
-                         CROSSHAIR_THICKNESS)
-        
+                         (mx, my + current_gap + current_size), CROSSHAIR_THICKNESS)
         pygame.draw.line(self.screen, CROSSHAIR_COLOR,
                          (mx - current_gap - current_size, my),
-                         (mx - current_gap, my),
-                         CROSSHAIR_THICKNESS)
-
+                         (mx - current_gap, my), CROSSHAIR_THICKNESS)
         pygame.draw.line(self.screen, CROSSHAIR_COLOR,
                          (mx + current_gap, my),
-                         (mx + current_gap + current_size, my),
-                         CROSSHAIR_THICKNESS)
+                         (mx + current_gap + current_size, my), CROSSHAIR_THICKNESS)
     
     def _render_pause_menu(self):
-        """Renderiza el menú de pausa"""
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
         self.screen.blit(overlay, (0, 0))
@@ -206,19 +185,18 @@ class GameplayScene(Scene):
         self.btn_exit.draw(self.screen)
     
     def _render_debug_info(self):
-        """Renderiza información de debug"""
         font = pygame.font.Font(None, 24)
         fps = self.clock.get_fps()
         dt_ms = self.dt * (1000.0 / self.target_fps)
-        debug_info = self.level.get_debug_info()
+        d = self.level.get_debug_info()
         
         debug_texts = [
             f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
-            f"Enemigos: {debug_info['enemies_total']} (Visibles: {debug_info['enemies_rendered']})",
-            f"Proyectiles: {debug_info['projectiles']}",
-            f"Partículas: {debug_info['particles_active']} (Visibles: {debug_info['particles_rendered']}) / {debug_info['particles_capacity']}",
-            f"Pausa: {'SÍ' if self.paused else 'NO'}",
-            "F3: Toggle Debug"
+            f"Enemigos vivos: {d['enemies_total']} (Visibles: {d['enemies_rendered']})  |  Dead pool: {d['dead_pool_size']}",
+            f"Proyectiles: {d['projectiles']}",
+            f"Partículas: {d['particles_active']} (Visibles: {d['particles_rendered']}) / {d['particles_capacity']}",
+            f"Gemas XP: {d['gems_count']}",
+            f"Pausa: {'SÍ' if self.paused else 'NO'}   |   F3: Toggle Debug",
         ]
         y = 110
         for text in debug_texts:
