@@ -61,9 +61,8 @@ class Enemy:
 
     def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None):
         """
-        Reutiliza este objeto enemigo en una nueva posición con estadísticas frescas.
-        Evita crear un nuevo objeto en memoria (estilo Vampire Survivors).
-        Si enemy_type es None, mantiene el tipo actual.
+        Reutiliza este objeto enemigo en una nueva posición con estadísticas FRESCAS.
+        Usar para spawns nuevos. Para solo mover sin resetear, usar teleport_to().
         """
         if enemy_type and enemy_type != self.enemy_type:
             self.enemy_type = enemy_type
@@ -74,24 +73,20 @@ class Enemy:
             self.points = type_data['points']
             self.hitbox_total = self.size + self.hitbox_padding
             self.radius = self.size * 0.40
-            # Actualizar sprites del nuevo tipo
             self.image, self.flash_image = self._get_cached_sprite(self.size, self.hitbox_total, self.color)
             self.rect = pygame.Rect(0, 0, self.hitbox_total, self.hitbox_total)
         else:
             type_data = self.TYPES[self.enemy_type]
 
-        # Resetear posición
         self.x = x
         self.y = y
         self.rect.center = (int(x), int(y))
 
-        # Resetear estadísticas vitales
         self.base_speed = ENEMY_SPEED * speed_multiplier * type_data['speed_mult']
         self.max_health = type_data['health']
-        self.health = self.max_health
+        self.health = self.max_health       # ← reset completo solo en spawn nuevo
         self.speed_variance = random.uniform(0.9, 1.1)
 
-        # Resetear estado
         self.is_alive = True
         self.vx = 0
         self.vy = 0
@@ -101,6 +96,21 @@ class Enemy:
         self.bleed_intensity = 0.0
         self.bleed_drip_cooldown = 0
         self.attack_cooldown = 0
+
+    def teleport_to(self, x, y):
+        """
+        Mueve al enemigo a una nueva posición SIN tocar su vida ni estadísticas.
+        Úsalo para reposicionar enemigos lejanos (teleport off-screen).
+        Mantiene la vida actual, velocidad, tipo, etc.
+        """
+        self.x = x
+        self.y = y
+        self.rect.center = (int(x), int(y))
+        # Detener cualquier inercia para que no entre en pantalla de lado
+        self.vx = 0
+        self.vy = 0
+        self.knockback_x = 0
+        self.knockback_y = 0
 
     def _get_cached_sprite(self, size, total_size, color):
         key = (size, total_size, color)

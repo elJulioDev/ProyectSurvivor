@@ -5,10 +5,9 @@ Lógica clave:
 - Los enemigos muertos se guardan en un 'dead_pool' en lugar de eliminarse.
 - Al necesitar un nuevo enemigo, se recicla uno del dead_pool (recycle()) en vez
   de instanciar un objeto nuevo. Esto reduce drásticamente el garbage collection.
-- Los spawns ocurren alrededor de la vista de la cámara, no en los bordes del mundo,
-  lo que garantiza que SIEMPRE haya enemigos cerca del jugador.
-- Enemigos vivos que se alejen demasiado de la cámara también son reposicionados
-  automáticamente (teleport off-screen), igual que en VS.
+- Los spawns ocurren alrededor de la vista de la cámara, no en los bordes del mundo.
+- Enemigos vivos que se alejen demasiado se TELETRANSPORTAN con teleport_to(),
+  que preserva su vida y estadísticas actuales. NO se hace recycle().
 """
 
 import random
@@ -21,8 +20,9 @@ from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 SPAWN_MARGIN_MIN = 80    # Mínimo alejamiento del borde de pantalla
 SPAWN_MARGIN_MAX = 200   # Máximo alejamiento del borde de pantalla
 
-# Si un enemigo vivo supera esta distancia del jugador, se teletransporta
-TELEPORT_DISTANCE = 2000
+# Si un enemigo vivo supera esta distancia de la CÁMARA, se teletransporta
+# (no del jugador, sino del centro de la ventana visible)
+TELEPORT_DISTANCE = 1800
 
 
 class SpawnManager:
@@ -48,11 +48,6 @@ class SpawnManager:
     def update(self, dt, current_enemy_count, camera_offset=(0, 0)):
         """
         Actualiza el timer y spawna un enemigo si corresponde.
-
-        Args:
-            dt: Delta time
-            current_enemy_count: Cuántos enemigos vivos hay ahora
-            camera_offset: (offset_x, offset_y) de la cámara actual
 
         Returns:
             Enemy reciclado/nuevo listo para agregar a la lista activa, o None
@@ -83,7 +78,9 @@ class SpawnManager:
         """
         Revisa enemigos vivos que se hayan alejado demasiado de la cámara y los
         teletransporta a una posición válida de spawn alrededor de la pantalla.
-        Llama a este método desde LevelManager cada N frames para no sobrecargar.
+
+        IMPORTANTE: Usa enemy.teleport_to() para preservar vida y estadísticas.
+        NO llama a recycle() para no resetear al enemigo.
 
         Returns:
             Número de enemigos teletransportados
@@ -91,6 +88,7 @@ class SpawnManager:
         # Centro visible en coordenadas de mundo
         cam_center_x = -camera_offset[0] + WINDOW_WIDTH / 2
         cam_center_y = -camera_offset[1] + WINDOW_HEIGHT / 2
+        teleport_sq = TELEPORT_DISTANCE * TELEPORT_DISTANCE
 
         teleported = 0
         for enemy in enemies:
@@ -98,11 +96,10 @@ class SpawnManager:
                 continue
             dx = enemy.x - cam_center_x
             dy = enemy.y - cam_center_y
-            if dx * dx + dy * dy > TELEPORT_DISTANCE * TELEPORT_DISTANCE:
+            if dx * dx + dy * dy > teleport_sq:
                 nx, ny = self._get_spawn_position(camera_offset)
-                # Reciclar en la nueva posición manteniendo tipo y velocidad
-                speed_mult = 1.0 + (self.difficulty_level * 0.1)
-                enemy.recycle(nx, ny, speed_multiplier=speed_mult)
+                # ── Solo reposicionar, SIN resetear vida ni stats ─────
+                enemy.teleport_to(nx, ny)
                 teleported += 1
         return teleported
 
@@ -123,7 +120,7 @@ class SpawnManager:
         x, y = self._get_spawn_position(camera_offset)
 
         if self.dead_pool:
-            # ── Reciclar enemigo muerto ──────────────────────────────
+            # ── Reciclar enemigo muerto (sí resetea vida, es un spawn nuevo) ──
             enemy = self.dead_pool.pop()
             enemy.recycle(x, y, speed_multiplier=speed_mult, enemy_type=enemy_type)
             return enemy
