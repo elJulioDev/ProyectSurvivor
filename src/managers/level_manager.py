@@ -3,6 +3,7 @@ LevelManager con:
   - Pipeline de reciclaje de enemigos muertos (estilo Vampire Survivors)
   - Fusión periódica de gemas de XP cercanas en una sola gema de mayor valor
   - Spawn de enemigos relativo a la cámara
+  - Puntuación multiplicada x100 para que sea proporcional al esfuerzo
 """
 import pygame, math
 from settings import WORLD_WIDTH, WORLD_HEIGHT
@@ -23,6 +24,9 @@ GEM_MERGE_MIN_COUNT  = 3     # Mínimo de gemas en el grupo para fusionar
 
 # ── Parámetros de teletransporte de enemigos ─────────────────────────────────
 ENEMY_TELEPORT_INTERVAL = 90  # Frames entre revisiones de distancia
+
+# ── Multiplicador de puntuación ───────────────────────────────────────────────
+SCORE_MULTIPLIER = 100  # Hace la puntuación más satisfactoria y legible
 
 
 class LevelManager:
@@ -207,7 +211,8 @@ class LevelManager:
                         for enemy in self.enemies:
                             if enemy.rect.clipline(start, end):
                                 if enemy.take_damage(damage_this_frame):
-                                    self.score += enemy.points
+                                    # Puntuación con multiplicador
+                                    self.score += enemy.points * SCORE_MULTIPLIER
                                     self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
                                     gem = ExperienceGem(enemy.x, enemy.y, enemy.points)
                                     self.gems.append(gem)
@@ -234,7 +239,8 @@ class LevelManager:
                     self.hit_particle_cooldown = 1 if self.particle_system.quality == 2 else 4
                 
                 if hit_enemy.take_damage(projectile.damage):
-                    self.score += hit_enemy.points
+                    # Puntuación con multiplicador
+                    self.score += hit_enemy.points * SCORE_MULTIPLIER
                     self.particle_system.create_viscera_explosion(hit_enemy.x, hit_enemy.y)
                     gem = ExperienceGem(hit_enemy.x, hit_enemy.y, hit_enemy.points)
                     self.gems.append(gem)
