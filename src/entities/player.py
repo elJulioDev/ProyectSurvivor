@@ -63,29 +63,29 @@ class Player:
         # ══════════════════════════════════════════════════════════
         # STATS DE MEJORAS — Globales de armas
         # ══════════════════════════════════════════════════════════
-        self.global_damage_mult    = 1.0   # x daño de todas las armas
-        self.global_cooldown_mult  = 1.0   # x velocidad de disparo (< 1 = más rápido)
-        self.projectile_speed_mult = 1.0   # x velocidad de proyectiles
-        self.projectile_size_mult  = 1.0   # x tamaño de hitbox de proyectiles
-        self.extra_penetration     = 0     # +N penetración adicional
-        self.knockback_mult        = 1.0   # x fuerza de knockback al impactar
+        self.global_damage_mult    = 1.0
+        self.global_cooldown_mult  = 1.0
+        self.projectile_speed_mult = 1.0
+        self.projectile_size_mult  = 1.0
+        self.extra_penetration     = 0
+        self.knockback_mult        = 1.0
 
         # ══════════════════════════════════════════════════════════
         # STATS DE MEJORAS — Supervivencia
         # ══════════════════════════════════════════════════════════
-        self.health_regen      = 0.0   # HP/s pasiva
-        self.damage_reduction  = 0.0   # 0.0 → 1.0, porcentaje de daño bloqueado (máx 0.75)
-        self.lifesteal         = 0     # HP recuperado por kill
-        self.emergency_regen   = 0.0   # HP/s extra cuando HP < 25%
-        self.invulnerable_mult = 1.0   # Multiplicador de duración de iframes
+        self.health_regen      = 0.0
+        self.damage_reduction  = 0.0
+        self.lifesteal         = 0
+        self.emergency_regen   = 0.0
+        self.invulnerable_mult = 1.0
 
         # ══════════════════════════════════════════════════════════
         # STATS DE MEJORAS — XP / Gemas
         # ══════════════════════════════════════════════════════════
-        self.xp_mult           = 1.0   # Multiplicador de XP ganada
-        self.magnet_range_mult = 1.0   # Multiplicador del radio de imán
-        self.magnet_speed_mult = 1.0   # Multiplicador de velocidad de atracción
-        self.xp_on_kill_bonus  = 0     # XP directo al matar (sin gema)
+        self.xp_mult           = 1.0
+        self.magnet_range_mult = 1.0
+        self.magnet_speed_mult = 1.0
+        self.xp_on_kill_bonus  = 0
 
         # ══════════════════════════════════════════════════════════
         # SISTEMA DE NIVEL
@@ -95,15 +95,13 @@ class Player:
         self.experience_next_level = 50
         self.pending_level_ups = 0
 
-        # Tracking de stacks de mejoras para límites
-        self.upgrade_counts: dict = {}  # upgrade_key → número de veces aplicada
+        self.upgrade_counts: dict = {}
 
     # ─── XP ────────────────────────────────────────────────────────────────
 
     def gain_experience(self, amount):
         if not self.is_alive:
             return False
-        # Aplicar multiplicador de XP
         modified = max(1, int(amount * self.xp_mult))
         self.experience += modified
         leveled_up = False
@@ -133,17 +131,12 @@ class Player:
             elif event.key in [pygame.K_LCTRL, pygame.K_RCTRL]:
                 self._attempt_dash()
 
-            # ══════════════════════════════════════════════════════════
-            # TECLAS DEBUG
-            # ══════════════════════════════════════════════════════════
             elif event.key == pygame.K_F1:
-                # Forzar subida de nivel otorgando la experiencia faltante
                 xp_faltante = self.experience_next_level - self.experience
                 self.gain_experience(xp_faltante)
                 print(f"[DEBUG] Subida de nivel forzada. Nivel actual: {self.level}")
-                
+
             elif event.key == pygame.K_F2:
-                # Imprimir en consola el diccionario de stacks actuales
                 print("\n=== [DEBUG] STACKS DE MEJORAS ACTUALES ===")
                 if not self.upgrade_counts:
                     print("  Ninguna mejora elegida todavia.")
@@ -173,6 +166,29 @@ class Player:
             mag = math.sqrt(input_x * input_x + input_y * input_y)
             dash_dx = input_x / mag
             dash_dy = input_y / mag
+        else:
+            # Fallback: dash en la dirección de apuntado (útil en modo móvil)
+            dash_dx = math.cos(self.angle)
+            dash_dy = math.sin(self.angle)
+
+        self.dash_active = True
+        self.dash_timer = self.dash_duration
+        self.dash_cooldown_timer = self.dash_cooldown
+        self.dash_vector = (dash_dx, dash_dy)
+        self.dash_buffer_timer = 0
+        self.ghost_positions = []
+
+    def _execute_dash_with_vector(self, dx: float, dy: float) -> None:
+        """
+        Ejecuta el dash en una dirección explícita (para controles móviles).
+        Si (dx, dy) es (0,0), usa el ángulo de apuntado actual como fallback.
+        """
+        if not self.dash_unlocked or self.dash_cooldown_timer > 0:
+            return
+
+        if math.hypot(dx, dy) > 0.01:
+            mag = math.hypot(dx, dy)
+            dash_dx, dash_dy = dx / mag, dy / mag
         else:
             dash_dx = math.cos(self.angle)
             dash_dy = math.sin(self.angle)
@@ -215,6 +231,32 @@ class Player:
         if abs(self.vel_x) < 0.1: self.vel_x = 0
         if abs(self.vel_y) < 0.1: self.vel_y = 0
 
+    def handle_input_mobile(self, dx: float, dy: float, dt: float = 1.0) -> None:
+        """
+        Aplica movimiento desde el joystick virtual móvil.
+        dx, dy ya vienen normalizados y escalados por magnitud (rango −1 … +1).
+        Respeta la misma aceleración/fricción que handle_input para movimiento coherente.
+        """
+        if self.dash_active:
+            return
+
+        self.vel_x += dx * self.accel * dt
+        self.vel_y += dy * self.accel * dt
+
+        friction_factor = self.friction ** dt
+        self.vel_x *= friction_factor
+        self.vel_y *= friction_factor
+
+        speed_sq     = self.vel_x * self.vel_x + self.vel_y * self.vel_y
+        max_speed_sq = self.max_speed * self.max_speed
+        if speed_sq > max_speed_sq:
+            scale     = self.max_speed / math.sqrt(speed_sq)
+            self.vel_x *= scale
+            self.vel_y *= scale
+
+        if abs(self.vel_x) < 0.1: self.vel_x = 0
+        if abs(self.vel_y) < 0.1: self.vel_y = 0
+
     def update_rotation(self, mouse_pos, camera_offset=(0, 0)):
         screen_player_x = self.x + camera_offset[0]
         screen_player_y = self.y + camera_offset[1]
@@ -242,17 +284,14 @@ class Player:
         if not self.is_alive:
             return
 
-        # Regeneración pasiva
         if self.health_regen > 0 and self.health < self.max_health:
             self.health += self.health_regen * dt / 60.0
             self.health = min(self.health, self.max_health)
 
-        # Regeneración de emergencia (< 25% HP)
         if self.emergency_regen > 0 and self.health < self.max_health * 0.25:
             self.health += self.emergency_regen * dt / 60.0
             self.health = min(self.health, self.max_health)
 
-        # Dash cooldown
         if self.dash_cooldown_timer > 0:
             self.dash_cooldown_timer -= 1 * dt
             if self.dash_cooldown_timer <= 0 and self.dash_buffer_timer > 0:
@@ -261,7 +300,6 @@ class Player:
         if self.dash_buffer_timer > 0:
             self.dash_buffer_timer -= 1 * dt
 
-        # Movimiento durante dash
         if self.dash_active:
             if len(self.ghost_positions) < self.max_ghosts:
                 self.ghost_positions.append((self.x, self.y, self.angle))
@@ -282,7 +320,6 @@ class Player:
             self.x += self.vel_x * dt
             self.y += self.vel_y * dt
 
-        # Colisiones con bordes
         if self.x < self.size:
             self.x = self.size;  self.vel_x = 0
         elif self.x > WORLD_WIDTH - self.size:
@@ -292,7 +329,6 @@ class Player:
         elif self.y > WORLD_HEIGHT - self.size:
             self.y = WORLD_HEIGHT - self.size;  self.vel_y = 0
 
-        # Hitbox
         hitbox_size = self.size - 4
         self.rect.x = self.x - hitbox_size // 2
         self.rect.y = self.y - hitbox_size // 2
@@ -305,18 +341,15 @@ class Player:
     def take_damage(self, damage):
         if not self.is_alive or self.invulnerable_frames > 0 or self.dash_active:
             return
-        # Reducción de daño por armadura
         reduced = damage * max(0.0, 1.0 - self.damage_reduction)
         self.health -= reduced
         self.damage_flash = 15
-        # Iframes afectados por el multiplicador
         self.invulnerable_frames = 60 * self.invulnerable_mult
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
 
     def heal(self, amount):
-        old_health = self.health
         self.health = min(self.max_health, self.health + amount)
 
     def attack(self, camera=None):

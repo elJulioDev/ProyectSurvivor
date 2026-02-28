@@ -1,12 +1,12 @@
 """
 LevelManager — Actualizado:
-  · LOD basado en enemigos VISIBLES (no en total), para no degradar gráficos
-    por enemigos fuera de pantalla.
+  · LOD basado en enemigos VISIBLES (no en total).
   · Proyectiles enemigos (ácido del Spitter, roca del Tank).
   · Explosiones del Exploder con daño en área.
   · Spawn circular pasando player_pos al SpawnManager.
   · Cap de enemigos dinámico hasta 800.
   · Cámara inicializada con snap_to para evitar salto brusco al inicio.
+  · Soporte para MobileControls vía parámetro mobile= en update().
 """
 import pygame
 import math
@@ -29,7 +29,6 @@ GEM_MERGE_MIN_COUNT = 3
 ENEMY_TELEPORT_INTERVAL = 90
 SCORE_MULTIPLIER = 100
 
-# Máximo de proyectiles enemigos simultáneos
 MAX_ENEMY_PROJECTILES = 35
 
 
@@ -59,9 +58,7 @@ class LevelManager:
 
         self._gem_merge_timer  = 0
         self._teleport_timer   = 0
-
-        # Superficie de aviso de explosión (flash en pantalla)
-        self._explosion_flash = 0
+        self._explosion_flash  = 0
 
     def initialize(self):
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
@@ -83,15 +80,25 @@ class LevelManager:
         self._teleport_timer   = 0
         self._explosion_flash  = 0
 
-        # Snap de cámara: evita el salto brusco al inicio
         self.camera.snap_to(self.player)
 
-    def update(self, dt, keys, mouse_pos, mouse_pressed):
+    # ─────────────────────────────────────────────────────────────────────────
+    # Update principal
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def update(self, dt, keys, mouse_pos, mouse_pressed, mobile=None):
+        """
+        Actualiza toda la lógica del juego.
+
+        mobile : instancia de MobileControls (o None).
+                 Si mobile.enabled = True, se usan los controles táctiles
+                 en lugar del teclado/ratón para mover, apuntar y disparar.
+        """
         if self.game_over or not self.player or not self.player.is_alive:
             self.game_over = True
             return
 
-        # LOD CORREGIDO: basado en enemigos VISIBLES, no en total
+        # LOD basado en enemigos VISIBLES
         visible = self.enemies_rendered
         if visible < 200:
             self.particle_system.set_quality(2)
@@ -100,15 +107,39 @@ class LevelManager:
         else:
             self.particle_system.set_quality(0)
 
-        self.player.handle_input(keys, dt)
-        self.player.update_rotation(mouse_pos,
-                                    (self.camera.offset_x, self.camera.offset_y))
+        # ── Input del jugador ─────────────────────────────────────────────────
+        use_mobile = mobile is not None and mobile.enabled
+
+        if use_mobile:
+            # Movimiento desde joystick izquierdo
+            mdx, mdy = mobile.movement
+            self.player.handle_input_mobile(mdx, mdy, dt)
+
+            # Rotación desde joystick derecho (si activo), si no, desde mouse
+            if mobile.aim_angle is not None:
+                self.player.angle = mobile.aim_angle
+            else:
+                cam_offset = (self.camera.offset_x, self.camera.offset_y)
+                self.player.update_rotation(mouse_pos, cam_offset)
+
+            # Disparo automático cuando joystick derecho está activo
+            if mobile.fire:
+                self.player.attack(self.camera)
+        else:
+            cam_offset = (self.camera.offset_x, self.camera.offset_y)
+            self.player.handle_input(keys, dt)
+            self.player.update_rotation(mouse_pos, cam_offset)
+
         self.player.update(dt)
 
-        if mouse_pressed[0]:
+        # Disparo con mouse (solo en modo PC)
+        if not use_mobile and mouse_pressed[0]:
             self.player.attack(self.camera)
 
-        self.camera.update(self.player, mouse_pos)
+        # Cámara: en modo móvil sin joystick aim, no desplazar por mouse
+        cam_mouse = None if use_mobile else mouse_pos
+        self.camera.update(self.player, cam_mouse)
+
         cam_offset = (self.camera.offset_x, self.camera.offset_y)
 
         self.spatial_grid.clear()
@@ -121,7 +152,6 @@ class LevelManager:
         self._update_projectiles(dt)
         self._update_enemy_projectiles(dt)
 
-        # Spawn con posición real del jugador (spawn circular)
         player_pos = self.player.get_position()
         new_enemy = self.spawn_manager.update(
             dt, len(self.enemies), cam_offset, player_pos=player_pos
@@ -186,12 +216,10 @@ class LevelManager:
             enemy.update_physics(dt)
             enemy.update(self.particle_system, dt)
 
-            # ── Habilidades especiales ──────────────────────────────────
             action = enemy.update_special(player_pos, dt)
             if action:
                 self._handle_enemy_action(action, enemy)
 
-            # Ataque cuerpo a cuerpo
             dist_sq = ((enemy.x - self.player.x) ** 2 +
                        (enemy.y - self.player.y) ** 2)
             if dist_sq < 2500:
@@ -205,7 +233,6 @@ class LevelManager:
         self.enemies = active_enemies
 
     def _handle_enemy_action(self, action, enemy):
-        """Procesa el resultado de una habilidad especial enemiga."""
         if action['type'] == 'explosion':
             self._handle_explosion(
                 action['x'], action['y'],
@@ -232,7 +259,6 @@ class LevelManager:
                 self.enemy_projectiles.append(ep)
 
     def _handle_explosion(self, ex, ey, damage, radius):
-        """Daño en área al jugador."""
         radius_sq = radius * radius
         px, py = self.player.x, self.player.y
         dx = px - ex
@@ -457,7 +483,6 @@ class LevelManager:
             pygame.draw.line(screen, (100, 0, 0),
                              (0, line_y), (WINDOW_WIDTH, line_y), 2)
 
-    # Debug
     def get_debug_info(self):
         active_particles = sum(1 for p in self.particle_pool.pool if p.is_alive)
         return {
