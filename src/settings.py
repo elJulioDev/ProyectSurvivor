@@ -3,12 +3,8 @@ Configuraciones globales del juego
 """
 
 # CONFIGURACIÓN DE PANTALLA
-# Resolución INTERNA (Diseño del juego)
-# Usaremos 1280x720 (HD) como base. Esto hará que los sprites se vean más grandes.
 BASE_WIDTH = 1280
 BASE_HEIGHT = 720
-
-# Resolución INICIAL de la ventana (Lo que ve el usuario al abrir)
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
@@ -46,81 +42,334 @@ ENEMY_SPEED = 2
 ENEMIES_PER_WAVE = 5
 
 CROSSHAIR_COLOR = (255, 255, 255)
-CROSSHAIR_SIZE = 6       # Largo de las líneas
-CROSSHAIR_GAP = 4        # Espacio entre el punto central y las líneas
-CROSSHAIR_THICKNESS = 2  # Grosor de las líneas
-CROSSHAIR_DOT_SIZE = 2   # Tamaño del punto central (2x2 px se ve mejor que 1x1)
+CROSSHAIR_SIZE = 6
+CROSSHAIR_GAP = 4
+CROSSHAIR_THICKNESS = 2
+CROSSHAIR_DOT_SIZE = 2
 
-# ===== SISTEMA DE MEJORAS =====
+# ═══════════════════════════════════════════════════════════════════════════
+# SISTEMA DE MEJORAS — Categorías, Rarezas y Stats expandidos
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# type:        'stat' | 'weapon' | 'xp' | 'unlock' | 'unlock_weapon'
+# rarity:      'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+# category:    'movement' | 'survival' | 'weapons' | 'xp'
+# stackable:   Si puede elegirse más de una vez
+# max_stacks:  Límite de veces que puede acumularse (None = sin límite)
+# requires:    Condición para que aparezca (str con nombre de flag del player)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
 UPGRADES = {
-    # STATS DEL JUGADOR
+
+    # ═══════════════════════════════════════════
+    # MOVIMIENTO
+    # ═══════════════════════════════════════════
+
     'dash': {
-        'name': 'Dash Tactical',
-        'desc': 'Desbloquea el dash (Ctrl)',
+        'name': 'Dash Tactico',
+        'desc': 'Desbloquea el Dash (Ctrl). Atraviesa la horda y esquiva en el ultimo segundo.',
         'type': 'unlock',
-        'rarity': 'rare'
+        'rarity': 'rare',
+        'category': 'movement',
     },
     'speed': {
-        'name': 'Velocidad',
-        'desc': '+10% velocidad de movimiento',
+        'name': 'Adrenalina',
+        'desc': '+12% velocidad de movimiento. Mantente un paso por delante de los zombies.',
         'type': 'stat',
         'stat_name': 'max_speed',
-        'value': 1.1,
-        'stackable': True
+        'value': 1.12,
+        'stackable': True,
+        'rarity': 'common',
+        'category': 'movement',
     },
+    'dash_cooldown': {
+        'name': 'Carga Rapida',
+        'desc': '-25% tiempo de recarga del Dash. Mas escapadas, menos mordidas.',
+        'type': 'stat',
+        'stat_name': 'dash_cooldown',
+        'value': 0.75,
+        'stackable': True,
+        'max_stacks': 3,
+        'requires': 'dash_unlocked',
+        'rarity': 'uncommon',
+        'category': 'movement',
+    },
+    'dash_duration': {
+        'name': 'Dash Prolongado',
+        'desc': 'El Dash recorre un 40% mas de distancia. Cruza grupos enteros de zombies.',
+        'type': 'stat',
+        'stat_name': 'dash_duration',
+        'value': 1.4,
+        'stackable': False,
+        'requires': 'dash_unlocked',
+        'rarity': 'rare',
+        'category': 'movement',
+    },
+
+    # ═══════════════════════════════════════════
+    # SUPERVIVENCIA
+    # ═══════════════════════════════════════════
+
     'health': {
         'name': 'Vitalidad',
-        'desc': '+20 HP máximo',
+        'desc': '+25 HP maximo. Mas margen para errores contra la horda.',
         'type': 'stat',
         'stat_name': 'max_health',
-        'value': 20,
-        'stackable': True
+        'value': 25,
+        'stackable': True,
+        'rarity': 'common',
+        'category': 'survival',
     },
     'regen': {
-        'name': 'Regeneración',
-        'desc': '+0.5 HP/segundo',
+        'name': 'Regeneracion',
+        'desc': '+0.8 HP por segundo. Recuperate pasivamente entre enfrentamientos.',
         'type': 'stat',
         'stat_name': 'health_regen',
-        'value': 0.5,
-        'stackable': True
+        'value': 0.8,
+        'stackable': True,
+        'rarity': 'uncommon',
+        'category': 'survival',
     },
-    
-    # ARMAS
+    'armor': {
+        'name': 'Armadura',
+        'desc': '-10% al daño recibido. Cada punto de vida importa cuando hay cientos de zombies.',
+        'type': 'stat',
+        'stat_name': 'damage_reduction',
+        'value': 0.10,
+        'stackable': True,
+        'max_stacks': 5,
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
+    'lifesteal': {
+        'name': 'Vampirismo',
+        'desc': 'Recupera 2 HP por cada zombie eliminado. Matar es sobrevivir.',
+        'type': 'stat',
+        'stat_name': 'lifesteal',
+        'value': 2,
+        'stackable': True,
+        'rarity': 'rare',
+        'category': 'survival',
+    },
+    'emergency_regen': {
+        'name': 'Segundo Aliento',
+        'desc': '+5 HP/s adicional cuando tu vida baja del 25%. Un seguro de vida.',
+        'type': 'stat',
+        'stat_name': 'emergency_regen',
+        'value': 5.0,
+        'stackable': False,
+        'rarity': 'epic',
+        'category': 'survival',
+    },
+    'iframes': {
+        'name': 'Esquiva Fantasma',
+        'desc': '+60% duracion de invulnerabilidad tras recibir daño. Mas tiempo para reaccionar.',
+        'type': 'stat',
+        'stat_name': 'invulnerable_mult',
+        'value': 1.6,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
+    'max_health_big': {
+        'name': 'Musculatura de Acero',
+        'desc': '+60 HP maximo de golpe. Para quien prefiere absorber impactos.',
+        'type': 'stat',
+        'stat_name': 'max_health',
+        'value': 60,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'rare',
+        'category': 'survival',
+    },
+
+    # ═══════════════════════════════════════════
+    # ARMAS — GLOBALES
+    # ═══════════════════════════════════════════
+
     'weapon_damage': {
-        'name': 'Fuerza',
-        'desc': '+15% daño de armas',
+        'name': 'Potencia de Fuego',
+        'desc': '+15% daño de TODAS las armas. Afecta pistola, escopeta, rifle y laser.',
         'type': 'weapon',
         'stat_name': 'global_damage_mult',
         'value': 1.15,
-        'stackable': True
+        'stackable': True,
+        'rarity': 'common',
+        'category': 'weapons',
+    },
+    'weapon_damage_big': {
+        'name': 'Calibre Mayor',
+        'desc': '+30% daño de todas las armas. Una mejora masiva para todo tu arsenal.',
+        'type': 'weapon',
+        'stat_name': 'global_damage_mult',
+        'value': 1.30,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'rare',
+        'category': 'weapons',
     },
     'fire_rate': {
         'name': 'Cadencia',
-        'desc': '+10% velocidad de disparo',
+        'desc': '+12% velocidad de disparo global. Mas plomo en menos tiempo.',
         'type': 'weapon',
         'stat_name': 'global_cooldown_mult',
-        'value': 0.9,
-        'stackable': True
+        'value': 0.88,
+        'stackable': True,
+        'rarity': 'common',
+        'category': 'weapons',
     },
+    'fire_rate_big': {
+        'name': 'Gatillo Mecanico',
+        'desc': '+25% velocidad de disparo. El estruendo no para.',
+        'type': 'weapon',
+        'stat_name': 'global_cooldown_mult',
+        'value': 0.75,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'rare',
+        'category': 'weapons',
+    },
+    'projectile_speed': {
+        'name': 'Balas Supersonicas',
+        'desc': '+20% velocidad de todos los proyectiles. Mas dificil de esquivar para los zombies.',
+        'type': 'weapon',
+        'stat_name': 'projectile_speed_mult',
+        'value': 1.2,
+        'stackable': True,
+        'max_stacks': 5,
+        'rarity': 'common',
+        'category': 'weapons',
+    },
+    'penetration': {
+        'name': 'Municion Perforante',
+        'desc': 'Los proyectiles atraviesan +1 zombie adicional. Elimina grupos apretados.',
+        'type': 'weapon',
+        'stat_name': 'extra_penetration',
+        'value': 1,
+        'stackable': True,
+        'max_stacks': 4,
+        'rarity': 'uncommon',
+        'category': 'weapons',
+    },
+    'projectile_size': {
+        'name': 'Balas Expansivas',
+        'desc': '+30% tamaño de hitbox de proyectiles. Mas facil impactar en el caos.',
+        'type': 'weapon',
+        'stat_name': 'projectile_size_mult',
+        'value': 1.3,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'uncommon',
+        'category': 'weapons',
+    },
+    'knockback': {
+        'name': 'Impacto Brutal',
+        'desc': '+50% fuerza de retroceso al impactar zombies. Crea espacio cuando mas lo necesitas.',
+        'type': 'weapon',
+        'stat_name': 'knockback_mult',
+        'value': 1.5,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'uncommon',
+        'category': 'weapons',
+    },
+
+    # ═══════════════════════════════════════════
+    # ARMAS — DESBLOQUEOS
+    # ═══════════════════════════════════════════
+
     'unlock_shotgun': {
         'name': 'Escopeta',
-        'desc': 'Desbloquea la escopeta (Tecla 2)',
+        'desc': 'Desbloquea la escopeta (Tecla 2). 8 perdigones, devastadora a corto rango.',
         'type': 'unlock_weapon',
         'weapon_class': 'ShotgunWeapon',
-        'rarity': 'rare'
+        'rarity': 'rare',
+        'category': 'weapons',
     },
     'unlock_rifle': {
         'name': 'Rifle de Asalto',
-        'desc': 'Desbloquea el rifle (Tecla 3)',
+        'desc': 'Desbloquea el rifle (Tecla 3). Alta cadencia y buen daño sostenido.',
         'type': 'unlock_weapon',
         'weapon_class': 'AssaultRifleWeapon',
-        'rarity': 'rare'
+        'rarity': 'rare',
+        'category': 'weapons',
     },
     'unlock_laser': {
-        'name': 'Láser',
-        'desc': 'Desbloquea el láser (Tecla 4)',
+        'name': 'Laser de Plasma',
+        'desc': 'Desbloquea el laser (Tecla 4). Daño continuo masivo en linea recta.',
         'type': 'unlock_weapon',
         'weapon_class': 'LaserWeapon',
-        'rarity': 'legendary'
-    }
+        'rarity': 'legendary',
+        'category': 'weapons',
+    },
+
+    # ═══════════════════════════════════════════
+    # XP Y GEMAS
+    # ═══════════════════════════════════════════
+
+    'xp_magnet': {
+        'name': 'Iman de XP',
+        'desc': '+40% radio de atraccion de gemas. Recoge experiencia desde mas lejos.',
+        'type': 'xp',
+        'stat_name': 'magnet_range_mult',
+        'value': 1.4,
+        'stackable': True,
+        'max_stacks': 5,
+        'rarity': 'common',
+        'category': 'xp',
+    },
+    'xp_boost': {
+        'name': 'Estudioso',
+        'desc': '+25% experiencia obtenida de todas las fuentes. Sube de nivel mas rapido.',
+        'type': 'xp',
+        'stat_name': 'xp_mult',
+        'value': 1.25,
+        'stackable': True,
+        'rarity': 'uncommon',
+        'category': 'xp',
+    },
+    'xp_on_kill': {
+        'name': 'Coleccionista',
+        'desc': '+8 XP bonus directo por cada zombie eliminado. No necesitas recoger gema.',
+        'type': 'xp',
+        'stat_name': 'xp_on_kill_bonus',
+        'value': 8,
+        'stackable': True,
+        'rarity': 'uncommon',
+        'category': 'xp',
+    },
+    'magnet_speed': {
+        'name': 'Tractor de Gemas',
+        'desc': 'Las gemas vuelan un 60% mas rapido hacia ti. Recoleccion casi instantanea.',
+        'type': 'xp',
+        'stat_name': 'magnet_speed_mult',
+        'value': 1.6,
+        'stackable': True,
+        'max_stacks': 3,
+        'rarity': 'uncommon',
+        'category': 'xp',
+    },
+    'xp_magnet_huge': {
+        'name': 'Campo Magnetico',
+        'desc': 'DUPLICA el radio de atraccion de gemas. Practicamente una aspiradora de XP.',
+        'type': 'xp',
+        'stat_name': 'magnet_range_mult',
+        'value': 2.0,
+        'stackable': False,
+        'rarity': 'epic',
+        'category': 'xp',
+    },
+    'xp_boost_big': {
+        'name': 'Genio Tactico',
+        'desc': '+50% experiencia obtenida. El camino rapido a las mejoras mas poderosas.',
+        'type': 'xp',
+        'stat_name': 'xp_mult',
+        'value': 1.5,
+        'stackable': True,
+        'max_stacks': 2,
+        'rarity': 'rare',
+        'category': 'xp',
+    },
 }

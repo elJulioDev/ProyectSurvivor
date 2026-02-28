@@ -1,23 +1,29 @@
 """
-Sistema de armas optimizado para Disparo Manual (Top-Down Shooter)
-Estructura limpia: Pistola, Escopeta y Láser.
+Sistema de armas con soporte completo para multiplicadores del jugador:
+  - global_damage_mult      → afecta a TODAS las armas (incluyendo láser)
+  - global_cooldown_mult    → velocidad de disparo global
+  - projectile_speed_mult   → velocidad de proyectiles
+  - projectile_size_mult    → tamaño de hitbox de proyectiles
+  - extra_penetration       → penetración adicional
 """
 import math, random, pygame, os
+
 
 def load_sound(filename):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(current_dir))
     path = os.path.join(project_root, "assets", "sounds", filename)
     if not os.path.exists(path):
-        print(f"Error: El archivo de sonido no existe en: {path}")
+        print(f"Error: sonido no encontrado en: {path}")
         return None
     try:
         sound = pygame.mixer.Sound(path)
         sound.set_volume(0.2)
         return sound
     except Exception as e:
-        print(f"Advertencia: No se pudo cargar el sonido {filename}. Error: {e}")
+        print(f"Advertencia: no se pudo cargar {filename}. Error: {e}")
         return None
+
 
 class Weapon:
     def __init__(self, owner, cooldown=60, damage=10, kickback=0, shake=0, spread=0):
@@ -33,7 +39,6 @@ class Weapon:
         self.shoot_sound = None
 
     def set_projectile_pool(self, pool):
-        """Asigna el pool de proyectiles"""
         self.projectile_pool = pool
 
     def update(self, dt=1.0):
@@ -57,72 +62,110 @@ class Weapon:
         return False
 
     def _apply_physics(self, camera):
-        """Aplica retroceso físico al jugador y temblor a la cámara"""
         if self.kickback > 0:
             angle = self.owner.angle
-            recoil_x = -math.cos(angle) * self.kickback
-            recoil_y = -math.sin(angle) * self.kickback
-            
-            self.owner.vel_x += recoil_x
-            self.owner.vel_y += recoil_y
-
+            self.owner.vel_x += -math.cos(angle) * self.kickback
+            self.owner.vel_y += -math.sin(angle) * self.kickback
         if camera and self.shake_amount > 0:
             camera.add_shake(self.shake_amount)
 
+    def _apply_player_proj_mods(self, projectile):
+        """
+        Aplica los modificadores del jugador al proyectil recién creado.
+        Llámalo inmediatamente después de self.projectile_pool.get(...)
+        """
+        size_mult = getattr(self.owner, 'projectile_size_mult', 1.0)
+        if size_mult != 1.0:
+            new_hitbox = max(10, int(projectile.hitbox_size * size_mult))
+            projectile.hitbox_size = new_hitbox
+            
+            # Envolvemos los valores en una tupla adicional "( )" y 
+            # forzamos todo a int() para que Pygame lo acepte como un rect style object válido
+            projectile.rect = pygame.Rect((
+                int(projectile.x - new_hitbox // 2),
+                int(projectile.y - new_hitbox // 2),
+                int(new_hitbox), 
+                int(new_hitbox)
+            ))
+
     def activate(self, camera=None):
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 class PistolWeapon(Weapon):
     def __init__(self, owner):
         super().__init__(owner, cooldown=12, damage=12, kickback=0, shake=2.0, spread=0.02)
         self.shoot_sound = load_sound("pistol_fire.wav")
-    
+
     def activate(self, camera=None):
-        if not self.projectile_pool: return False
-        
-        angle = self.owner.angle + random.uniform(-self.current_spread, self.current_spread)
-        
+        if not self.projectile_pool:
+            return False
+
+        owner = self.owner
+        speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
+        extra_pen   = getattr(owner, 'extra_penetration', 0)
+        damage_mult = getattr(owner, 'global_damage_mult', 1.0)
+        final_dmg   = int(self.damage * damage_mult)
+
+        angle = owner.angle + random.uniform(-self.current_spread, self.current_spread)
         spawn_dist = 18
-        px = self.owner.x + math.cos(angle) * spawn_dist
-        py = self.owner.y + math.sin(angle) * spawn_dist
-        damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
-        final_damage = int(self.damage * damage_mult)
-        
+        px = owner.x + math.cos(angle) * spawn_dist
+        py = owner.y + math.sin(angle) * spawn_dist
+
         p = self.projectile_pool.get(
-            px, py, angle, speed=16, damage=final_damage,
-            penetration=1, image_type='circle'
+            px, py, angle,
+            speed=16 * speed_mult,
+            damage=final_dmg,
+            penetration=1 + extra_pen,
+            image_type='circle'
         )
         p.color = (0, 255, 255)
-        
+        self._apply_player_proj_mods(p)
+
         self.current_spread = min(self.current_spread + 0.05, 0.15)
         return True
+
 
 class ShotgunWeapon(Weapon):
     def __init__(self, owner):
         super().__init__(owner, cooldown=50, damage=18, kickback=12.0, shake=8.0, spread=0.4)
         self.pellets = 8
         self.shoot_sound = load_sound("shotgun_fire.wav")
+
     def activate(self, camera=None):
-        if not self.projectile_pool: return False
-        
-        base_angle = self.owner.angle
-        
+        if not self.projectile_pool:
+            return False
+
+        owner = self.owner
+        speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
+        extra_pen   = getattr(owner, 'extra_penetration', 0)
+        damage_mult = getattr(owner, 'global_damage_mult', 1.0)
+        final_dmg   = int(self.damage * damage_mult)
+        base_angle  = owner.angle
+
         for i in range(self.pellets):
             factor = i / (self.pellets - 1) if self.pellets > 1 else 0.5
             offset = (factor - 0.5) * self.base_spread
-            angle = base_angle + offset + random.uniform(-0.05, 0.05)
-            
-            px = self.owner.x + math.cos(base_angle) * 15
-            py = self.owner.y + math.sin(base_angle) * 15
-            damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
-            final_damage = int(self.damage * damage_mult)
-            
+            angle  = base_angle + offset + random.uniform(-0.05, 0.05)
+
+            px = owner.x + math.cos(base_angle) * 15
+            py = owner.y + math.sin(base_angle) * 15
+
             p = self.projectile_pool.get(
-                px, py, angle, speed=random.uniform(14, 16), 
-                damage=final_damage, penetration=3, lifetime=35, image_type='square'
+                px, py, angle,
+                speed=random.uniform(14, 16) * speed_mult,
+                damage=final_dmg,
+                penetration=3 + extra_pen,
+                lifetime=35,
+                image_type='square'
             )
             p.color = (255, random.randint(100, 150), 0)
+            self._apply_player_proj_mods(p)
+
         return True
+
 
 class LaserWeapon(Weapon):
     def __init__(self, owner):
@@ -130,7 +173,7 @@ class LaserWeapon(Weapon):
         self.max_range = 1500
         self.duration = 10
         self.draw_timer = 0
-        
+
     def update(self, dt=1.0):
         super().update(dt)
         if self.draw_timer > 0:
@@ -138,33 +181,40 @@ class LaserWeapon(Weapon):
 
     def activate(self, camera=None):
         self.draw_timer = self.duration
-        return True 
+        return True
 
     def get_beam_info(self):
         if self.draw_timer > 0:
-            end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
-            end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
-            return (self.owner.x, self.owner.y), (end_x, end_y)
+            owner = self.owner
+            end_x = owner.x + math.cos(owner.angle) * self.max_range
+            end_y = owner.y + math.sin(owner.angle) * self.max_range
+            return (owner.x, owner.y), (end_x, end_y)
         return None
+
+    def get_damage_per_second(self):
+        """Daño por segundo del láser incluyendo global_damage_mult del jugador"""
+        damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
+        return self.damage * damage_mult * 6
 
     def render(self, screen, camera):
         if self.draw_timer > 0:
-            start = camera.apply_coords(self.owner.x, self.owner.y)
-            
-            end_x = self.owner.x + math.cos(self.owner.angle) * self.max_range
-            end_y = self.owner.y + math.sin(self.owner.angle) * self.max_range
-            
+            owner = self.owner
+            start = camera.apply_coords(owner.x, owner.y)
+
+            end_x = owner.x + math.cos(owner.angle) * self.max_range
+            end_y = owner.y + math.sin(owner.angle) * self.max_range
+
             jitter = 2
             end_x += random.uniform(-jitter, jitter)
             end_y += random.uniform(-jitter, jitter)
-            
             end = camera.apply_coords(end_x, end_y)
-            
+
             progress = self.draw_timer / self.duration
             width = max(2, int(10 * progress))
-            
+
             pygame.draw.line(screen, (0, 200, 255), start, end, width + 4)
             pygame.draw.line(screen, (255, 255, 255), start, end, width)
+
 
 class AssaultRifleWeapon(Weapon):
     def __init__(self, owner):
@@ -173,20 +223,29 @@ class AssaultRifleWeapon(Weapon):
         self.shoot_sound = load_sound("rifle_fire.wav")
 
     def activate(self, camera=None):
-        if not self.projectile_pool: return False
+        if not self.projectile_pool:
+            return False
 
-        angle = self.owner.angle + random.uniform(-self.current_spread, self.current_spread)
+        owner = self.owner
+        speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
+        extra_pen   = getattr(owner, 'extra_penetration', 0)
+        damage_mult = getattr(owner, 'global_damage_mult', 1.0)
+        final_dmg   = int(self.damage * damage_mult)
 
-        px = self.owner.x + math.cos(angle) * 22
-        py = self.owner.y + math.sin(angle) * 22
-        damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
-        final_damage = int(self.damage * damage_mult)
+        angle = owner.angle + random.uniform(-self.current_spread, self.current_spread)
+        px = owner.x + math.cos(angle) * 22
+        py = owner.y + math.sin(angle) * 22
 
         p = self.projectile_pool.get(
-            px, py, angle, speed=19, damage=final_damage, 
-            penetration=1, lifetime=60, image_type='square'
+            px, py, angle,
+            speed=19 * speed_mult,
+            damage=final_dmg,
+            penetration=1 + extra_pen,
+            lifetime=60,
+            image_type='square'
         )
         p.color = (255, 230, 100)
-        
+        self._apply_player_proj_mods(p)
+
         self.current_spread = min(self.current_spread + 0.04, self.max_spread)
         return True

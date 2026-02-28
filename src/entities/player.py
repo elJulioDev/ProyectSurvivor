@@ -1,5 +1,6 @@
 """
 Jugador optimizado con DeltaTime + Sistema de Dash Profesional
+Stats expandidos para el nuevo sistema de mejoras.
 """
 
 import pygame, math
@@ -23,18 +24,18 @@ class Player:
         self.friction = PLAYER_FRICTION
         self.max_speed = PLAYER_SPEED
         self.angle = 0
-        
+
         self.health = 100
         self.max_health = 100
         self.is_alive = True
         self.damage_flash = 0
         self.invulnerable_frames = 0
-        
-        # SISTEMA DE ARMAS - SOLO PISTOLA AL INICIO
+
+        # SISTEMA DE ARMAS
         self.weapons = [PistolWeapon(self)]
         self.current_weapon_index = 0
-        self.unlocked_weapons = {'PistolWeapon'}  # Nuevo: tracking de armas desbloqueadas
-        
+        self.unlocked_weapons = {'PistolWeapon'}
+
         hitbox_size = self.size - 4
         self.rect = pygame.Rect(
             self.x - hitbox_size // 2,
@@ -42,53 +43,79 @@ class Player:
             hitbox_size,
             hitbox_size
         )
-        
-        # SISTEMA DE DASH MEJORADO
+
+        # SISTEMA DE DASH
         self.dash_unlocked = False
         self.dash_active = False
         self.dash_timer = 0
-        self.dash_duration = 12  # Frames
-        self.dash_cooldown = 45  # Frames
+        self.dash_duration = 12
+        self.dash_cooldown = 45
         self.dash_cooldown_timer = 0
-        self.dash_speed = 24  # Más rápido para mejor sensación
+        self.dash_speed = 24
         self.dash_vector = (0, 0)
-        
-        # Input buffering para dash
         self.dash_buffer_timer = 0
-        self.dash_buffer_duration = 9  # 150ms a 60fps
-        
-        # Ghost trail para efectos visuales
+        self.dash_buffer_duration = 9
         self.ghost_positions = []
         self.max_ghosts = 5
-        
+
         self.last_shot_time = 0
 
-        # STATS PARA MEJORAS
-        self.global_damage_mult = 1.0
-        self.global_cooldown_mult = 1.0
-        self.health_regen = 0.0  # HP por segundo
+        # ══════════════════════════════════════════════════════════
+        # STATS DE MEJORAS — Globales de armas
+        # ══════════════════════════════════════════════════════════
+        self.global_damage_mult    = 1.0   # x daño de todas las armas
+        self.global_cooldown_mult  = 1.0   # x velocidad de disparo (< 1 = más rápido)
+        self.projectile_speed_mult = 1.0   # x velocidad de proyectiles
+        self.projectile_size_mult  = 1.0   # x tamaño de hitbox de proyectiles
+        self.extra_penetration     = 0     # +N penetración adicional
+        self.knockback_mult        = 1.0   # x fuerza de knockback al impactar
 
+        # ══════════════════════════════════════════════════════════
+        # STATS DE MEJORAS — Supervivencia
+        # ══════════════════════════════════════════════════════════
+        self.health_regen      = 0.0   # HP/s pasiva
+        self.damage_reduction  = 0.0   # 0.0 → 1.0, porcentaje de daño bloqueado (máx 0.75)
+        self.lifesteal         = 0     # HP recuperado por kill
+        self.emergency_regen   = 0.0   # HP/s extra cuando HP < 25%
+        self.invulnerable_mult = 1.0   # Multiplicador de duración de iframes
+
+        # ══════════════════════════════════════════════════════════
+        # STATS DE MEJORAS — XP / Gemas
+        # ══════════════════════════════════════════════════════════
+        self.xp_mult           = 1.0   # Multiplicador de XP ganada
+        self.magnet_range_mult = 1.0   # Multiplicador del radio de imán
+        self.magnet_speed_mult = 1.0   # Multiplicador de velocidad de atracción
+        self.xp_on_kill_bonus  = 0     # XP directo al matar (sin gema)
+
+        # ══════════════════════════════════════════════════════════
         # SISTEMA DE NIVEL
+        # ══════════════════════════════════════════════════════════
         self.level = 1
         self.experience = 0
-        self.experience_next_level = 50 # XP base necesaria
-        self.pending_level_ups = 0 # Por si sube 2 niveles de golpe
+        self.experience_next_level = 50
+        self.pending_level_ups = 0
+
+        # Tracking de stacks de mejoras para límites
+        self.upgrade_counts: dict = {}  # upgrade_key → número de veces aplicada
+
+    # ─── XP ────────────────────────────────────────────────────────────────
 
     def gain_experience(self, amount):
-        if not self.is_alive: return False
-        
-        self.experience += amount
+        if not self.is_alive:
+            return False
+        # Aplicar multiplicador de XP
+        modified = max(1, int(amount * self.xp_mult))
+        self.experience += modified
         leveled_up = False
-        
         while self.experience >= self.experience_next_level:
             self.experience -= self.experience_next_level
             self.level += 1
             self.pending_level_ups += 1
-            # Curva de experiencia: cada nivel cuesta 20% más
             self.experience_next_level = int(self.experience_next_level * 1.2)
             leveled_up = True
-            
         return leveled_up
+
+    # ─── Input ─────────────────────────────────────────────────────────────
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -100,299 +127,230 @@ class Player:
                 self.current_weapon_index = 2
             elif event.key == pygame.K_4 and len(self.weapons) > 3:
                 self.current_weapon_index = 3
-            
-            # CURACIÓN
             elif event.key == pygame.K_h:
                 self.heal(10)
                 self.damage_flash = 5
-            
-            # DASH CON TECLA DEDICADA (CTRL)
             elif event.key in [pygame.K_LCTRL, pygame.K_RCTRL]:
                 self._attempt_dash()
-    
+
     def _attempt_dash(self):
-        """Intenta ejecutar el dash con sistema de buffering"""
         if not self.dash_unlocked:
             return
-        
         if self.dash_cooldown_timer > 0:
             self.dash_buffer_timer = self.dash_buffer_duration
             return
-        
-        # Ejecutar dash inmediatamente
         self._execute_dash()
-    
+
     def _execute_dash(self):
-        """Ejecuta el dash calculando la dirección correcta"""
-        # Obtener input actual del teclado
         keys = pygame.key.get_pressed()
-        
-        dash_dx = 0
-        dash_dy = 0
-        
-        # 1. PRIORIDAD: Dirección basada en teclas presionadas (8 direcciones)
         input_x = 0
         input_y = 0
-        
-        if keys[pygame.K_w] or keys[pygame.K_UP]: input_y -= 1
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]: input_y += 1
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]: input_x -= 1
+        if keys[pygame.K_w] or keys[pygame.K_UP]:    input_y -= 1
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:  input_y += 1
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:  input_x -= 1
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]: input_x += 1
-        
-        # Si hay input de teclado, usarlo
+
         if input_x != 0 or input_y != 0:
-            # Normalizar dirección diagonal
-            magnitude = math.sqrt(input_x * input_x + input_y * input_y)
-            dash_dx = input_x / magnitude
-            dash_dy = input_y / magnitude
+            mag = math.sqrt(input_x * input_x + input_y * input_y)
+            dash_dx = input_x / mag
+            dash_dy = input_y / mag
         else:
-            # 2. FALLBACK: Si no hay teclas, hacer dash hacia el mouse
             dash_dx = math.cos(self.angle)
             dash_dy = math.sin(self.angle)
-        
-        # Activar dash
+
         self.dash_active = True
         self.dash_timer = self.dash_duration
         self.dash_cooldown_timer = self.dash_cooldown
         self.dash_vector = (dash_dx, dash_dy)
-        self.dash_buffer_timer = 0  # Reset buffer
-        
-        # Limpiar ghosts para nuevo trail
+        self.dash_buffer_timer = 0
         self.ghost_positions = []
-        
+
     def handle_input(self, keys, dt=1.0):
-        """Maneja el movimiento del jugador"""
-        # Durante dash, no permitir control (opcional: puedes permitirlo para más control)
         if self.dash_active:
             return
-        
         input_x = 0
         input_y = 0
-        
-        if keys[pygame.K_w] or keys[pygame.K_UP]: input_y -= 1
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]: input_y += 1
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]: input_x -= 1
+        if keys[pygame.K_w] or keys[pygame.K_UP]:    input_y -= 1
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:  input_y += 1
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:  input_x -= 1
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]: input_x += 1
-        
-        # Normalizar input diagonal
+
         if input_x != 0 and input_y != 0:
             input_x *= 0.7071
             input_y *= 0.7071
-        
-        # Aplicar aceleración
+
         self.vel_x += input_x * self.accel * dt
         self.vel_y += input_y * self.accel * dt
-        
-        # Aplicar fricción
+
         friction_factor = self.friction ** dt
         self.vel_x *= friction_factor
         self.vel_y *= friction_factor
-        
-        # Limitar velocidad máxima
+
         speed_sq = self.vel_x * self.vel_x + self.vel_y * self.vel_y
         max_speed_sq = self.max_speed * self.max_speed
-        
         if speed_sq > max_speed_sq:
             scale = self.max_speed / math.sqrt(speed_sq)
             self.vel_x *= scale
             self.vel_y *= scale
-        
-        # Snap a 0 si muy lento
+
         if abs(self.vel_x) < 0.1: self.vel_x = 0
         if abs(self.vel_y) < 0.1: self.vel_y = 0
-    
+
     def update_rotation(self, mouse_pos, camera_offset=(0, 0)):
-        """Actualiza la rotación hacia el mouse"""
         screen_player_x = self.x + camera_offset[0]
         screen_player_y = self.y + camera_offset[1]
-        
         dx = mouse_pos[0] - screen_player_x
         dy = mouse_pos[1] - screen_player_y
-        
         self.angle = math.atan2(dy, dx)
 
     def add_weapon(self, weapon_class, projectile_pool):
-        """Añade una nueva arma desbloqueada"""
-        from entities.weapon import (ShotgunWeapon, LaserWeapon, 
-                                      AssaultRifleWeapon)
-        
+        from entities.weapon import ShotgunWeapon, LaserWeapon, AssaultRifleWeapon
         weapon_map = {
-            'ShotgunWeapon': ShotgunWeapon,
-            'AssaultRifleWeapon': AssaultRifleWeapon,
-            'LaserWeapon': LaserWeapon
+            'ShotgunWeapon':       ShotgunWeapon,
+            'AssaultRifleWeapon':  AssaultRifleWeapon,
+            'LaserWeapon':         LaserWeapon,
         }
-        
         if weapon_class in weapon_map and weapon_class not in self.unlocked_weapons:
             new_weapon = weapon_map[weapon_class](self)
             new_weapon.set_projectile_pool(projectile_pool)
             self.weapons.append(new_weapon)
             self.unlocked_weapons.add(weapon_class)
-            print(f"✅ Arma desbloqueada y lista: {weapon_class}")
-    
+            print(f"✅ Arma desbloqueada: {weapon_class}")
+
+    # ─── Update ────────────────────────────────────────────────────────────
+
     def update(self, dt=1.0):
-        """Actualiza el estado del jugador"""
         if not self.is_alive:
             return
-        
+
+        # Regeneración pasiva
         if self.health_regen > 0 and self.health < self.max_health:
-            self.health += self.health_regen * dt / 60.0  # Convertir a por-frame
+            self.health += self.health_regen * dt / 60.0
             self.health = min(self.health, self.max_health)
-        
-        # Actualizar cooldown del dash
+
+        # Regeneración de emergencia (< 25% HP)
+        if self.emergency_regen > 0 and self.health < self.max_health * 0.25:
+            self.health += self.emergency_regen * dt / 60.0
+            self.health = min(self.health, self.max_health)
+
+        # Dash cooldown
         if self.dash_cooldown_timer > 0:
             self.dash_cooldown_timer -= 1 * dt
-            
-            # Sistema de buffering: Si el cooldown termina y hay buffer activo, ejecutar dash
             if self.dash_cooldown_timer <= 0 and self.dash_buffer_timer > 0:
                 self._execute_dash()
-        
-        # Actualizar buffer timer
+
         if self.dash_buffer_timer > 0:
             self.dash_buffer_timer -= 1 * dt
-        
+
         # Movimiento durante dash
         if self.dash_active:
-            # Guardar posición para ghost trail
             if len(self.ghost_positions) < self.max_ghosts:
                 self.ghost_positions.append((self.x, self.y, self.angle))
             else:
-                # Rotar lista (FIFO)
                 self.ghost_positions.pop(0)
                 self.ghost_positions.append((self.x, self.y, self.angle))
-            
-            # Aplicar movimiento de dash
+
             self.x += self.dash_vector[0] * self.dash_speed * dt
             self.y += self.dash_vector[1] * self.dash_speed * dt
-            
-            # Mantener momentum en la dirección del dash
             self.vel_x = self.dash_vector[0] * self.max_speed * 0.8
             self.vel_y = self.dash_vector[1] * self.max_speed * 0.8
-            
-            # Decrementar timer
+
             self.dash_timer -= 1 * dt
             if self.dash_timer <= 0:
                 self.dash_active = False
-                self.ghost_positions = []  # Limpiar ghosts al terminar
+                self.ghost_positions = []
         else:
-            # Movimiento normal
             self.x += self.vel_x * dt
             self.y += self.vel_y * dt
-        
-        # Colisiones con bordes del mundo
-        if self.x < self.size: 
-            self.x = self.size
-            self.vel_x = 0
-        elif self.x > WORLD_WIDTH - self.size: 
-            self.x = WORLD_WIDTH - self.size
-            self.vel_x = 0
-            
-        if self.y < self.size: 
-            self.y = self.size
-            self.vel_y = 0
-        elif self.y > WORLD_HEIGHT - self.size: 
-            self.y = WORLD_HEIGHT - self.size
-            self.vel_y = 0
-        
-        # Actualizar hitbox
+
+        # Colisiones con bordes
+        if self.x < self.size:
+            self.x = self.size;  self.vel_x = 0
+        elif self.x > WORLD_WIDTH - self.size:
+            self.x = WORLD_WIDTH - self.size;  self.vel_x = 0
+        if self.y < self.size:
+            self.y = self.size;  self.vel_y = 0
+        elif self.y > WORLD_HEIGHT - self.size:
+            self.y = WORLD_HEIGHT - self.size;  self.vel_y = 0
+
+        # Hitbox
         hitbox_size = self.size - 4
         self.rect.x = self.x - hitbox_size // 2
         self.rect.y = self.y - hitbox_size // 2
-        
-        # Actualizar efectos visuales
-        if self.damage_flash > 0: 
-            self.damage_flash -= 1 * dt
-        if self.invulnerable_frames > 0: 
-            self.invulnerable_frames -= 1 * dt
-    
+
+        if self.damage_flash > 0:      self.damage_flash -= 1 * dt
+        if self.invulnerable_frames > 0: self.invulnerable_frames -= 1 * dt
+
+    # ─── Combate ───────────────────────────────────────────────────────────
+
     def take_damage(self, damage):
-        """Recibe daño con invulnerabilidad durante dash"""
         if not self.is_alive or self.invulnerable_frames > 0 or self.dash_active:
             return
-        
-        self.health -= damage
+        # Reducción de daño por armadura
+        reduced = damage * max(0.0, 1.0 - self.damage_reduction)
+        self.health -= reduced
         self.damage_flash = 15
-        self.invulnerable_frames = 60
-        
+        # Iframes afectados por el multiplicador
+        self.invulnerable_frames = 60 * self.invulnerable_mult
         if self.health <= 0:
             self.health = 0
             self.is_alive = False
-    
+
     def heal(self, amount):
-        """Cura al jugador"""
         old_health = self.health
         self.health = min(self.max_health, self.health + amount)
-        if self.health > old_health:
-            print(f"Curado: +{amount} HP (Total: {self.health})")
-    
+
     def attack(self, camera=None):
-        """Dispara el arma actual"""
         if not self.is_alive or self.dash_active:
             return False
-        
         if self.current_weapon_index >= len(self.weapons):
             self.current_weapon_index = 0
-        
-        if len(self.weapons) == 0:
+        if not self.weapons:
             return False
-        
         current_weapon = self.weapons[self.current_weapon_index]
         did_shoot = current_weapon.shoot(camera)
-        
         if did_shoot:
             self.last_shot_time = pygame.time.get_ticks()
-        
         return did_shoot
 
+    # ─── Render ────────────────────────────────────────────────────────────
+
     def render(self, screen, camera):
-        """Renderiza el jugador con efectos mejorados"""
         if not self.is_alive:
             return
-        
         screen_pos = camera.apply_coords(self.x, self.y)
         screen_x, screen_y = int(screen_pos[0]), int(screen_pos[1])
-        
-        # Parpadeo de invulnerabilidad
+
         if self.invulnerable_frames > 0 and int(self.invulnerable_frames) % 6 < 3:
             return
-        
-        # Efectos de dash con ghost trail mejorado
+
         if self.dash_active and len(self.ghost_positions) > 0:
             for i, (gx, gy, gangle) in enumerate(self.ghost_positions):
-                # Alpha decreciente
                 alpha = int(180 * (i / max(1, len(self.ghost_positions))))
-                
                 ghost_screen = camera.apply_coords(gx, gy)
                 gsx, gsy = int(ghost_screen[0]), int(ghost_screen[1])
-                
-                # Superficie ghost
                 ghost_surf = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
                 ghost_surf.fill((255, 255, 255, alpha))
-                
                 screen.blit(ghost_surf, (gsx - self.size//2, gsy - self.size//2))
-                
-                # Línea de dirección ghost
                 if alpha > 50:
                     end_x = gsx + math.cos(gangle) * (self.size * 1.2)
                     end_y = gsy + math.sin(gangle) * (self.size * 1.2)
-                    pygame.draw.line(screen, (255, 255, 255, alpha), 
-                                   (gsx, gsy), (end_x, end_y), 2)
-        
-        # Color del jugador
+                    pygame.draw.line(screen, (255, 255, 255, alpha),
+                                     (gsx, gsy), (end_x, end_y), 2)
+
         render_color = self.color
         if self.damage_flash > 0:
             flash = int(255 * (self.damage_flash / 15))
             render_color = (255, max(0, 255 - flash), max(0, 255 - flash))
-        
-        # Dibujar jugador
-        pygame.draw.rect(screen, render_color, 
-                        (screen_x - self.size//2, screen_y - self.size//2, 
-                         self.size, self.size))
-        
-        # Línea de dirección
+
+        pygame.draw.rect(screen, render_color,
+                         (screen_x - self.size//2, screen_y - self.size//2,
+                          self.size, self.size))
+
         end_x = screen_x + math.cos(self.angle) * (self.size * 1.2)
         end_y = screen_y + math.sin(self.angle) * (self.size * 1.2)
-        pygame.draw.line(screen, render_color, (screen_x, screen_y), 
-                        (end_x, end_y), 3)
-    
+        pygame.draw.line(screen, render_color, (screen_x, screen_y),
+                         (end_x, end_y), 3)
+
     def get_position(self):
         return (self.x, self.y)
