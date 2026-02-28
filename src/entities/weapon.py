@@ -72,21 +72,12 @@ class Weapon:
     def _apply_player_proj_mods(self, projectile):
         """
         Aplica los modificadores del jugador al proyectil recién creado.
-        Llámalo inmediatamente después de self.projectile_pool.get(...)
+        projectile_size_mult afecta SOLO el tamaño VISUAL (self.size).
+        La hitbox no cambia para evitar colisiones fantasma a distancia.
         """
         size_mult = getattr(self.owner, 'projectile_size_mult', 1.0)
         if size_mult != 1.0:
-            new_hitbox = max(10, int(projectile.hitbox_size * size_mult))
-            projectile.hitbox_size = new_hitbox
-            
-            # Envolvemos los valores en una tupla adicional "( )" y 
-            # forzamos todo a int() para que Pygame lo acepte como un rect style object válido
-            projectile.rect = pygame.Rect((
-                int(projectile.x - new_hitbox // 2),
-                int(projectile.y - new_hitbox // 2),
-                int(new_hitbox), 
-                int(new_hitbox)
-            ))
+            projectile.size = max(3, int(projectile.size * size_mult))
 
     def activate(self, camera=None):
         return False

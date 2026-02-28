@@ -255,10 +255,10 @@ UPGRADES = {
     },
     'projectile_size': {
         'name': 'Balas Expansivas',
-        'desc': '+30% tamaño de hitbox de proyectiles. Mas facil impactar en el caos.',
+        'desc': '+5% tamaño visual de balas. Impacto mas visible sin alterar la precision.',
         'type': 'weapon',
         'stat_name': 'projectile_size_mult',
-        'value': 1.3,
+        'value': 1.05,
         'stackable': True,
         'max_stacks': 3,
         'rarity': 'uncommon',
