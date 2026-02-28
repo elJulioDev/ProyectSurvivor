@@ -71,7 +71,8 @@ class Player:
         # STATS DE MEJORAS — Supervivencia
         self.health_regen      = 0.0
         self.damage_reduction  = 0.0
-        self.lifesteal         = 0
+        self.lifesteal         = 5      # HP recuperados cuando proc vampirismo
+        self.lifesteal_chance  = 0.0    # probabilidad (0.0–1.0) de proc por kill
         self.emergency_regen   = 0.0
         self.invulnerable_mult = 1.0
 
@@ -155,7 +156,6 @@ class Player:
             dash_dx = input_x / mag
             dash_dy = input_y / mag
         else:
-            # Fallback: dash en la dirección de apuntado (útil en modo móvil)
             dash_dx = math.cos(self.angle)
             dash_dy = math.sin(self.angle)
 
@@ -167,10 +167,6 @@ class Player:
         self.ghost_positions = []
 
     def _execute_dash_with_vector(self, dx: float, dy: float) -> None:
-        """
-        Ejecuta el dash en una dirección explícita (para controles móviles).
-        Si (dx, dy) es (0,0), usa el ángulo de apuntado actual como fallback.
-        """
         if not self.dash_unlocked or self.dash_cooldown_timer > 0:
             return
 
@@ -220,11 +216,6 @@ class Player:
         if abs(self.vel_y) < 0.1: self.vel_y = 0
 
     def handle_input_mobile(self, dx: float, dy: float, dt: float = 1.0) -> None:
-        """
-        Aplica movimiento desde el joystick virtual móvil.
-        dx, dy ya vienen normalizados y escalados por magnitud (rango −1 … +1).
-        Respeta la misma aceleración/fricción que handle_input para movimiento coherente.
-        """
         if self.dash_active:
             return
 

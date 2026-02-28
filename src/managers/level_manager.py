@@ -10,6 +10,7 @@ LevelManager — Actualizado:
 """
 import pygame
 import math
+import random
 from settings import WORLD_WIDTH, WORLD_HEIGHT
 from entities.player import Player
 from entities.particle import ParticleSystem
@@ -107,18 +108,15 @@ class LevelManager:
         use_mobile = mobile is not None and mobile.enabled
 
         if use_mobile:
-            # Movimiento desde joystick izquierdo
             mdx, mdy = mobile.movement
             self.player.handle_input_mobile(mdx, mdy, dt)
 
-            # Rotación desde joystick derecho (si activo), si no, desde mouse
             if mobile.aim_angle is not None:
                 self.player.angle = mobile.aim_angle
             else:
                 cam_offset = (self.camera.offset_x, self.camera.offset_y)
                 self.player.update_rotation(mouse_pos, cam_offset)
 
-            # Disparo automático cuando joystick derecho está activo
             if mobile.fire:
                 self.player.attack(self.camera)
         else:
@@ -128,11 +126,9 @@ class LevelManager:
 
         self.player.update(dt)
 
-        # Disparo con mouse (solo en modo PC)
         if not use_mobile and mouse_pressed[0]:
             self.player.attack(self.camera)
 
-        # Cámara: en modo móvil sin joystick aim, no desplazar por mouse
         cam_mouse = None if use_mobile else mouse_pos
         self.camera.update(self.player, cam_mouse)
 
@@ -335,9 +331,10 @@ class LevelManager:
         gem = ExperienceGem(enemy.x, enemy.y, enemy.points)
         self.gems.append(gem)
 
-        lifesteal = getattr(self.player, 'lifesteal', 0)
-        if lifesteal > 0:
-            self.player.heal(lifesteal)
+        vampire_chance = getattr(self.player, 'lifesteal_chance', 0.0)
+        if vampire_chance > 0 and random.random() < vampire_chance:
+            heal_amount = getattr(self.player, 'lifesteal', 5)
+            self.player.heal(heal_amount)
 
         xp_bonus = getattr(self.player, 'xp_on_kill_bonus', 0)
         if xp_bonus > 0:

@@ -174,8 +174,8 @@ class UpgradeScene(Scene):
                 self.game.current_scene = self.gameplay_scene
 
     def _apply_upgrade(self, key):
-        player   = self.gameplay_scene.level.player
-        upg      = UPGRADES[key]
+        player    = self.gameplay_scene.level.player
+        upg       = UPGRADES[key]
         proj_pool = self.gameplay_scene.level.projectile_pool
 
         player.upgrade_counts[key] = player.upgrade_counts.get(key, 0) + 1
@@ -188,33 +188,42 @@ class UpgradeScene(Scene):
         elif utype == 'stat':
             sname = upg['stat_name']
             val   = upg['value']
-            if sname == 'max_speed':          player.max_speed *= val
+            if sname == 'max_speed':
+                player.max_speed *= val
+                player.accel     *= val
             elif sname == 'max_health':
                 player.max_health += val
                 player.health = min(player.health + val, player.max_health)
-            elif sname == 'health_regen':     player.health_regen += val
-            elif sname == 'damage_reduction': player.damage_reduction = min(0.75, player.damage_reduction + val)
-            elif sname == 'lifesteal':        player.lifesteal += int(val)
-            elif sname == 'emergency_regen':  player.emergency_regen += val
-            elif sname == 'invulnerable_mult':player.invulnerable_mult *= val
-            elif sname == 'dash_cooldown':    player.dash_cooldown = max(10, int(player.dash_cooldown * val))
-            elif sname == 'dash_duration':    player.dash_duration = int(player.dash_duration * val)
+            elif sname == 'health_regen':
+                player.health_regen += val
+            elif sname == 'damage_reduction':
+                player.damage_reduction = min(0.75, player.damage_reduction + val)
+            elif sname == 'lifesteal_chance':
+                player.lifesteal_chance = min(1.0, player.lifesteal_chance + val)
+            elif sname == 'emergency_regen':
+                player.emergency_regen += val
+            elif sname == 'invulnerable_mult':
+                player.invulnerable_mult *= val
+            elif sname == 'dash_cooldown':
+                player.dash_cooldown = max(10, int(player.dash_cooldown * val))
+            elif sname == 'dash_duration':
+                player.dash_duration = int(player.dash_duration * val)
         elif utype == 'weapon':
             sname = upg['stat_name']
             val   = upg['value']
-            if sname == 'global_damage_mult':    player.global_damage_mult *= val
-            elif sname == 'global_cooldown_mult':player.global_cooldown_mult *= val
-            elif sname == 'projectile_speed_mult':player.projectile_speed_mult *= val
-            elif sname == 'extra_penetration':   player.extra_penetration += int(val)
-            elif sname == 'projectile_size_mult':player.projectile_size_mult *= val
-            elif sname == 'knockback_mult':      player.knockback_mult *= val
+            if sname == 'global_damage_mult':      player.global_damage_mult    *= val
+            elif sname == 'global_cooldown_mult':  player.global_cooldown_mult  *= val
+            elif sname == 'projectile_speed_mult': player.projectile_speed_mult *= val
+            elif sname == 'extra_penetration':     player.extra_penetration     += int(val)
+            elif sname == 'projectile_size_mult':  player.projectile_size_mult  *= val
+            elif sname == 'knockback_mult':        player.knockback_mult        *= val
         elif utype == 'xp':
             sname = upg['stat_name']
             val   = upg['value']
-            if sname == 'magnet_range_mult':   player.magnet_range_mult *= val
-            elif sname == 'xp_mult':           player.xp_mult *= val
-            elif sname == 'xp_on_kill_bonus':  player.xp_on_kill_bonus += int(val)
-            elif sname == 'magnet_speed_mult': player.magnet_speed_mult *= val
+            if sname == 'magnet_range_mult':    player.magnet_range_mult *= val
+            elif sname == 'xp_mult':            player.xp_mult           *= val
+            elif sname == 'xp_on_kill_bonus':   player.xp_on_kill_bonus  += int(val)
+            elif sname == 'magnet_speed_mult':  player.magnet_speed_mult *= val
 
         print(f"✅ Mejora aplicada: [{upg['rarity'].upper()}] {upg['name']}")
 
