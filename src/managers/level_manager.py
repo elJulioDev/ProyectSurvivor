@@ -1,16 +1,19 @@
 """
-LevelManager — corregido y expandido:
-  - Daño del láser usa global_damage_mult
-  - Knockback usa knockback_mult del jugador
-  - Lifesteal al matar
-  - XP on kill bonus (directo, sin gema)
-  - Gemas pasan magnet_range_mult y magnet_speed_mult al update
+LevelManager — Actualizado:
+  · LOD basado en enemigos VISIBLES (no en total), para no degradar gráficos
+    por enemigos fuera de pantalla.
+  · Proyectiles enemigos (ácido del Spitter, roca del Tank).
+  · Explosiones del Exploder con daño en área.
+  · Spawn circular pasando player_pos al SpawnManager.
+  · Cap de enemigos dinámico hasta 800.
 """
-import pygame, math
+import pygame
+import math
 from settings import WORLD_WIDTH, WORLD_HEIGHT
 from entities.player import Player
 from entities.particle import ParticleSystem
 from entities.weapon import LaserWeapon
+from entities.projectile import EnemyProjectile
 from utils.camera import Camera
 from utils.object_pool import ProjectilePool, ParticlePool
 from utils.spatial_grid import SpatialGrid
@@ -25,6 +28,9 @@ GEM_MERGE_MIN_COUNT = 3
 ENEMY_TELEPORT_INTERVAL = 90
 SCORE_MULTIPLIER = 100
 
+# Máximo de proyectiles enemigos simultáneos
+MAX_ENEMY_PROJECTILES = 35
+
 
 class LevelManager:
     def __init__(self):
@@ -37,9 +43,11 @@ class LevelManager:
         self.camera           = Camera(WORLD_WIDTH, WORLD_HEIGHT)
         self.player           = None
         self.enemies: list    = []
+        self.enemy_projectiles: list[EnemyProjectile] = []
         self.score            = 0
         self.game_over        = False
-        self.blood_surface    = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
+        self.blood_surface    = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT),
+                                               pygame.SRCALPHA)
         self.blood_surface.fill((0, 0, 0, 0))
 
         self.ai_update_interval    = 4
@@ -48,8 +56,11 @@ class LevelManager:
         self.particles_rendered    = 0
         self.enemies_rendered      = 0
 
-        self._gem_merge_timer = 0
-        self._teleport_timer  = 0
+        self._gem_merge_timer  = 0
+        self._teleport_timer   = 0
+
+        # Superficie de aviso de explosión (flash en pantalla)
+        self._explosion_flash = 0
 
     def initialize(self):
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
@@ -57,35 +68,41 @@ class LevelManager:
             weapon.set_projectile_pool(self.projectile_pool)
         self.particle_system.set_pool(self.particle_pool)
         self.enemies.clear()
+        self.enemy_projectiles.clear()
         self.projectile_pool.clear()
         self.particle_pool.clear()
         self.blood_surface.fill((0, 0, 0, 0))
-        self.score            = 0
-        self.game_over        = False
+        self.score             = 0
+        self.game_over         = False
         self.gems.clear()
-        self.spawn_manager    = SpawnManager()
+        self.spawn_manager     = SpawnManager()
         self.hit_particle_cooldown = 0
-        self.frame_counter    = 0
-        self._gem_merge_timer = 0
-        self._teleport_timer  = 0
+        self.frame_counter     = 0
+        self._gem_merge_timer  = 0
+        self._teleport_timer   = 0
+        self._explosion_flash  = 0
 
-    # ── Update principal ─────────────────────────────────────────────────────
+    # ── Update principal ──────────────────────────────────────────────────────
 
     def update(self, dt, keys, mouse_pos, mouse_pressed):
         if self.game_over or not self.player or not self.player.is_alive:
             self.game_over = True
             return
 
-        enemy_count = len(self.enemies)
-        if enemy_count < 50:
+        # ── LOD CORREGIDO: basado en enemigos VISIBLES, no en total ─────
+        # enemies_rendered se actualiza en render_world() del frame anterior.
+        # Usamos el valor del frame previo para no introducir lag de un frame.
+        visible = self.enemies_rendered
+        if visible < 200:
             self.particle_system.set_quality(2)
-        elif enemy_count < 150:
+        elif visible < 400:
             self.particle_system.set_quality(1)
         else:
             self.particle_system.set_quality(0)
 
         self.player.handle_input(keys, dt)
-        self.player.update_rotation(mouse_pos, (self.camera.offset_x, self.camera.offset_y))
+        self.player.update_rotation(mouse_pos,
+                                    (self.camera.offset_x, self.camera.offset_y))
         self.player.update(dt)
 
         if mouse_pressed[0]:
@@ -102,17 +119,24 @@ class LevelManager:
         self._update_enemies(dt)
         self._update_weapons(dt)
         self._update_projectiles(dt)
+        self._update_enemy_projectiles(dt)
 
-        new_enemy = self.spawn_manager.update(dt, len(self.enemies), cam_offset)
+        # Spawn con posición real del jugador (spawn circular)
+        player_pos = self.player.get_position()
+        new_enemy = self.spawn_manager.update(
+            dt, len(self.enemies), cam_offset, player_pos=player_pos
+        )
         if new_enemy:
             self.enemies.append(new_enemy)
 
         self._teleport_timer += dt
         if self._teleport_timer >= ENEMY_TELEPORT_INTERVAL:
             self._teleport_timer = 0
-            self.spawn_manager.try_teleport_distant_enemies(self.enemies, cam_offset)
+            self.spawn_manager.try_teleport_distant_enemies(
+                self.enemies, cam_offset, player_pos=player_pos
+            )
 
-        # Actualizar gemas — pasar multiplicadores de imán del jugador
+        # Gemas
         magnet_range = getattr(self.player, 'magnet_range_mult', 1.0)
         magnet_spd   = getattr(self.player, 'magnet_speed_mult', 1.0)
 
@@ -133,9 +157,12 @@ class LevelManager:
         self.particle_pool.update_all(dt)
         self.particle_pool.bake_static_blood(self.blood_surface)
 
+        if self._explosion_flash > 0:
+            self._explosion_flash -= 1 * dt
+
         self.frame_counter += 1
 
-    # ── Actualización de entidades ────────────────────────────────────────────
+    # ── Entidades ─────────────────────────────────────────────────────────────
 
     def _update_enemies(self, dt):
         player_pos = self.player.get_position()
@@ -159,7 +186,14 @@ class LevelManager:
             enemy.update_physics(dt)
             enemy.update(self.particle_system, dt)
 
-            dist_sq = (enemy.x - self.player.x)**2 + (enemy.y - self.player.y)**2
+            # ── Habilidades especiales ──────────────────────────────────
+            action = enemy.update_special(player_pos, dt)
+            if action:
+                self._handle_enemy_action(action, enemy)
+
+            # Ataque cuerpo a cuerpo
+            dist_sq = ((enemy.x - self.player.x) ** 2 +
+                       (enemy.y - self.player.y) ** 2)
             if dist_sq < 2500:
                 enemy.attack(self.player)
 
@@ -169,6 +203,51 @@ class LevelManager:
                 self.spawn_manager.add_to_dead_pool(enemy)
 
         self.enemies = active_enemies
+
+    def _handle_enemy_action(self, action, enemy):
+        """Procesa el resultado de una habilidad especial enemiga."""
+        if action['type'] == 'explosion':
+            self._handle_explosion(
+                action['x'], action['y'],
+                action['damage'], action['radius']
+            )
+            # Partículas de explosión
+            self.particle_system.create_viscera_explosion(action['x'], action['y'])
+            self._explosion_flash = 8
+            if action.get('kill_self'):
+                enemy.is_alive = False
+
+        elif action['type'] == 'projectile':
+            if len(self.enemy_projectiles) < MAX_ENEMY_PROJECTILES:
+                ep = EnemyProjectile(
+                    x         = action['x'],
+                    y         = action['y'],
+                    angle     = action['angle'],
+                    speed     = action['speed'],
+                    damage    = action['damage'],
+                    lifetime  = action['lifetime'],
+                    color     = action['color'],
+                    radius    = action['radius'],
+                    proj_type = action.get('proj_type', 'acid'),
+                )
+                self.enemy_projectiles.append(ep)
+
+    def _handle_explosion(self, ex, ey, damage, radius):
+        """Daño en área al jugador (y a otros enemigos si se quiere en el futuro)."""
+        radius_sq = radius * radius
+        px, py = self.player.x, self.player.y
+        dx = px - ex
+        dy = py - ey
+        if dx * dx + dy * dy <= radius_sq:
+            # Falloff: más daño en el centro
+            dist = math.sqrt(dx * dx + dy * dy) if (dx or dy) else 0
+            falloff = max(0.2, 1.0 - (dist / radius) * 0.7)
+            self.player.take_damage(int(damage * falloff))
+            # Cámara shake
+            self.camera.add_shake(12)
+
+        # Onda de sangre/partículas en el radio
+        self.particle_system.create_blood_pool(ex, ey)
 
     def _update_weapons(self, dt):
         if self.hit_particle_cooldown > 0:
@@ -182,7 +261,6 @@ class LevelManager:
                     beam = weapon.get_beam_info()
                     if beam:
                         start, end = beam
-                        # Usar el método de la propia arma que ya aplica global_damage_mult
                         dps = weapon.get_damage_per_second()
                         damage_this_frame = dps * (dt / 60.0)
 
@@ -203,18 +281,19 @@ class LevelManager:
                                           force=8 * knockback_mult)
 
                 if self.hit_particle_cooldown <= 0:
-                    p_speed_sq = projectile.vel_x**2 + projectile.vel_y**2
+                    p_speed_sq = projectile.vel_x ** 2 + projectile.vel_y ** 2
                     direction = None
                     if p_speed_sq > 0.01:
                         inv_speed = 1.0 / math.sqrt(p_speed_sq)
                         direction = (projectile.vel_x * inv_speed,
                                      projectile.vel_y * inv_speed)
-
                     self.particle_system.create_blood_splatter(
                         hit_enemy.x, hit_enemy.y,
                         direction_vector=direction, force=1.5, count=6
                     )
-                    self.hit_particle_cooldown = 1 if self.particle_system.quality == 2 else 4
+                    self.hit_particle_cooldown = (
+                        1 if self.particle_system.quality == 2 else 4
+                    )
 
                 if hit_enemy.take_damage(projectile.damage):
                     self._on_enemy_killed(hit_enemy)
@@ -222,24 +301,28 @@ class LevelManager:
             if not projectile.is_alive:
                 self.projectile_pool.return_to_pool(projectile)
 
-    def _on_enemy_killed(self, enemy):
-        """Centraliza todo lo que ocurre cuando un enemigo muere."""
-        # Puntuación
-        self.score += enemy.points * SCORE_MULTIPLIER
+    def _update_enemy_projectiles(self, dt):
+        """Mueve proyectiles enemigos y chequea colisión con el jugador."""
+        alive = []
+        for ep in self.enemy_projectiles:
+            ep.update(dt)
+            if ep.is_alive:
+                ep.check_player_collision(self.player)
+            if ep.is_alive:
+                alive.append(ep)
+        self.enemy_projectiles = alive
 
-        # Efectos visuales
+    def _on_enemy_killed(self, enemy):
+        self.score += enemy.points * SCORE_MULTIPLIER
         self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
 
-        # Gema de XP (el valor base; xp_mult se aplica en gain_experience)
         gem = ExperienceGem(enemy.x, enemy.y, enemy.points)
         self.gems.append(gem)
 
-        # Lifesteal
         lifesteal = getattr(self.player, 'lifesteal', 0)
         if lifesteal > 0:
             self.player.heal(lifesteal)
 
-        # XP directo al matar (sin necesidad de recoger gema)
         xp_bonus = getattr(self.player, 'xp_on_kill_bonus', 0)
         if xp_bonus > 0:
             self.player.gain_experience(xp_bonus)
@@ -321,10 +404,16 @@ class LevelManager:
             if self.camera.is_on_screen(projectile.rect):
                 projectile.render(screen, self.camera)
 
+        # Proyectiles enemigos
+        for ep in self.enemy_projectiles:
+            if self.camera.is_on_screen(ep.rect):
+                ep.render(screen, self.camera)
+
         self.enemies_rendered = 0
         render_margin = 200
         for enemy in self.enemies:
-            expanded_rect = enemy.rect.inflate(render_margin * 2, render_margin * 2)
+            expanded_rect = enemy.rect.inflate(render_margin * 2,
+                                               render_margin * 2)
             if self.camera.is_on_screen(expanded_rect):
                 enemy.render(screen, self.camera)
                 self.enemies_rendered += 1
@@ -337,8 +426,18 @@ class LevelManager:
         if self.player:
             self.player.render(screen, self.camera)
 
-        rendered_air = self.particle_pool.render_all(screen, self.camera, layer='air')
+        rendered_air = self.particle_pool.render_all(screen, self.camera,
+                                                      layer='air')
         self.particles_rendered = rendered_air
+
+        # Flash de explosión (overlay rojo tenue)
+        if self._explosion_flash > 0:
+            alpha = int(self._explosion_flash * 14)
+            flash_surf = pygame.Surface(
+                (screen.get_width(), screen.get_height()), pygame.SRCALPHA
+            )
+            flash_surf.fill((255, 60, 0, min(80, alpha)))
+            screen.blit(flash_surf, (0, 0))
 
     def _render_grid(self, screen):
         from settings import WINDOW_WIDTH, WINDOW_HEIGHT
@@ -352,16 +451,20 @@ class LevelManager:
             pygame.draw.line(screen, grid_color, (0, y), (WINDOW_WIDTH, y))
         line_x = self.camera.offset_x
         if 0 <= line_x <= WINDOW_WIDTH:
-            pygame.draw.line(screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
+            pygame.draw.line(screen, (100, 0, 0),
+                             (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
         line_x = self.camera.offset_x + WORLD_WIDTH
         if 0 <= line_x <= WINDOW_WIDTH:
-            pygame.draw.line(screen, (100, 0, 0), (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
+            pygame.draw.line(screen, (100, 0, 0),
+                             (line_x, 0), (line_x, WINDOW_HEIGHT), 2)
         line_y = self.camera.offset_y
         if 0 <= line_y <= WINDOW_HEIGHT:
-            pygame.draw.line(screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
+            pygame.draw.line(screen, (100, 0, 0),
+                             (0, line_y), (WINDOW_WIDTH, line_y), 2)
         line_y = self.camera.offset_y + WORLD_HEIGHT
         if 0 <= line_y <= WINDOW_HEIGHT:
-            pygame.draw.line(screen, (100, 0, 0), (0, line_y), (WINDOW_WIDTH, line_y), 2)
+            pygame.draw.line(screen, (100, 0, 0),
+                             (0, line_y), (WINDOW_WIDTH, line_y), 2)
 
     # ── Debug ─────────────────────────────────────────────────────────────────
 
@@ -372,6 +475,7 @@ class LevelManager:
             'enemies_rendered':   self.enemies_rendered,
             'dead_pool_size':     len(self.spawn_manager.dead_pool),
             'projectiles':        len(self.projectile_pool.active),
+            'enemy_projectiles':  len(self.enemy_projectiles),
             'particles_active':   active_particles,
             'particles_rendered': self.particles_rendered,
             'particles_capacity': self.particle_pool.capacity,
@@ -380,6 +484,7 @@ class LevelManager:
 
     def cleanup(self):
         self.enemies.clear()
+        self.enemy_projectiles.clear()
         self.projectile_pool.clear()
         self.particle_pool.clear()
         self.spatial_grid.clear()

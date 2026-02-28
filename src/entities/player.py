@@ -133,6 +133,25 @@ class Player:
             elif event.key in [pygame.K_LCTRL, pygame.K_RCTRL]:
                 self._attempt_dash()
 
+            # ══════════════════════════════════════════════════════════
+            # TECLAS DEBUG
+            # ══════════════════════════════════════════════════════════
+            elif event.key == pygame.K_F1:
+                # Forzar subida de nivel otorgando la experiencia faltante
+                xp_faltante = self.experience_next_level - self.experience
+                self.gain_experience(xp_faltante)
+                print(f"[DEBUG] Subida de nivel forzada. Nivel actual: {self.level}")
+                
+            elif event.key == pygame.K_F2:
+                # Imprimir en consola el diccionario de stacks actuales
+                print("\n=== [DEBUG] STACKS DE MEJORAS ACTUALES ===")
+                if not self.upgrade_counts:
+                    print("  Ninguna mejora elegida todavia.")
+                else:
+                    for key, count in self.upgrade_counts.items():
+                        print(f"  > {key}: {count} stack(s)")
+                print("==========================================\n")
+
     def _attempt_dash(self):
         if not self.dash_unlocked:
             return

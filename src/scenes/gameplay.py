@@ -69,7 +69,7 @@ class GameplayScene(Scene):
                 self.paused = not self.paused
                 pygame.mouse.set_visible(self.paused)
             
-            elif event.key == pygame.K_F3:
+            elif event.key == pygame.K_x:
                 self.show_debug = not self.show_debug
     
     def update(self):

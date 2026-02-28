@@ -166,10 +166,20 @@ class UpgradeScene(Scene):
 
         # Fallback si hay menos de 3 opciones
         while len(chosen) < 3:
-            stackables = [k for k, v in UPGRADES.items() if v.get('stackable', False)]
-            if stackables:
-                chosen.append(random.choice(stackables))
+            valid_stackables = []
+            for k, v in UPGRADES.items():
+                if v.get('stackable', False) and k not in chosen:
+                    max_stacks = v.get('max_stacks')
+                    current_stacks = player.upgrade_counts.get(k, 0)
+                    
+                    # Solo añadir si no tiene límite o si no ha alcanzado el límite
+                    if max_stacks is None or current_stacks < max_stacks:
+                        valid_stackables.append(k)
+            
+            if valid_stackables:
+                chosen.append(random.choice(valid_stackables))
             else:
+                # Si el jugador ya maxeó absolutamente todo, salimos del bucle
                 break
 
         return chosen[:3]
