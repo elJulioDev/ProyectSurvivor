@@ -95,10 +95,6 @@ class Enemy:
         # Carga visual del Exploder (0.0 → 1.0)
         self.charge_level = 0.0
 
-    # ─────────────────────────────────────────────────────────
-    # Reciclado / Teletransporte
-    # ─────────────────────────────────────────────────────────
-
     def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None, health_mult=1.0):
         if enemy_type and enemy_type != self.enemy_type:
             self.enemy_type = enemy_type
@@ -151,10 +147,6 @@ class Enemy:
         self.knockback_x = 0
         self.knockback_y = 0
 
-    # ─────────────────────────────────────────────────────────
-    # Sprite
-    # ─────────────────────────────────────────────────────────
-
     def _get_cached_sprite(self, size, total_size, color):
         key = (size, total_size, color)
         if key not in SPRITE_CACHE:
@@ -180,10 +172,6 @@ class Enemy:
 
         return SPRITE_CACHE[key]
 
-    # ─────────────────────────────────────────────────────────
-    # IA
-    # ─────────────────────────────────────────────────────────
-
     def update_ai(self, player_pos, spatial_grid):
         if not self.is_alive:
             return
@@ -196,7 +184,7 @@ class Enemy:
         dir_x = dx / dist
         dir_y = dy / dist
 
-        # ── Spitter: mantiene distancia preferida ──────────────────────
+        # Spitter: mantiene distancia preferida
         if self.special == 'spit':
             preferred = 270
             if dist < preferred * 0.6:
@@ -213,7 +201,7 @@ class Enemy:
                 if dist_sq > attack_range_sq else 0
             )
 
-        # ── Separación entre enemigos ──────────────────────────────────
+        # Separación entre enemigos
         push_x, push_y = 0, 0
         if spatial_grid:
             neighbors = spatial_grid.get_nearby(self.x, self.y, radius=1)
@@ -257,7 +245,7 @@ class Enemy:
         dy = player_pos[1] - self.y
         dist_sq = dx * dx + dy * dy
 
-        # ── Exploder ───────────────────────────────────────────────────
+        # Exploder
         if self.special == 'explode':
             # Actualiza el nivel de carga visual
             if dist_sq < 170 ** 2:
@@ -276,7 +264,7 @@ class Enemy:
                 }
             return None
 
-        # ── Cooldown general ───────────────────────────────────────────
+        # Cooldown general
         if self.special_cooldown_timer > 0:
             self.special_cooldown_timer -= dt
             return None
@@ -284,7 +272,7 @@ class Enemy:
         dist = math.sqrt(dist_sq) if dist_sq > 0.0001 else 0.001
         angle = math.atan2(dy, dx)
 
-        # ── Spitter ───────────────────────────────────────────────────
+        # Spitter
         if self.special == 'spit' and dist_sq < 530 ** 2:
             self.special_cooldown_timer = self.special_cooldown_max
             return {
@@ -296,7 +284,7 @@ class Enemy:
                 'proj_type': 'acid',
             }
 
-        # ── Tank ──────────────────────────────────────────────────────
+        # Tank
         elif self.special == 'rock' and dist_sq < 700 ** 2:
             self.special_cooldown_timer = self.special_cooldown_max
             # Leve imprecisión para que no sea imposible esquivar
@@ -313,10 +301,6 @@ class Enemy:
         # Si estaba fuera de rango, reiniciar cooldown para el siguiente intento
         self.special_cooldown_timer = self.special_cooldown_max
         return None
-
-    # ─────────────────────────────────────────────────────────
-    # Física
-    # ─────────────────────────────────────────────────────────
 
     def update_physics(self, dt=1.0):
         if not self.is_alive:
@@ -353,10 +337,6 @@ class Enemy:
                 delay = max(2, 20 - (self.bleed_intensity * 0.8))
                 particle_system.create_blood_drip(self.x, self.y, self.bleed_intensity)
                 self.bleed_drip_cooldown = delay
-
-    # ─────────────────────────────────────────────────────────
-    # Combate
-    # ─────────────────────────────────────────────────────────
 
     def can_attack(self):
         return self.attack_cooldown <= 0
@@ -400,10 +380,6 @@ class Enemy:
             self.knockback_x = dx * force * size_factor
             self.knockback_y = dy * force * size_factor
 
-    # ─────────────────────────────────────────────────────────
-    # Renderizado
-    # ─────────────────────────────────────────────────────────
-
     def render(self, screen, camera):
         if not self.is_alive:
             return
@@ -414,7 +390,7 @@ class Enemy:
         cx_s = screen_pos[0] + self.hitbox_total // 2
         cy_s = screen_pos[1] + self.hitbox_total // 2
 
-        # ── Glow naranja del Exploder cuando se carga ──────────────────
+        # Glow naranja del Exploder cuando se carga
         if self.special == 'explode' and self.charge_level > 0.05:
             gr = int(self.hitbox_total * 0.6 + self.charge_level * 20)
             ga = int(self.charge_level * 180)
@@ -446,10 +422,6 @@ class Enemy:
             )
             pygame.draw.rect(screen, hp_color,
                              (bar_x, bar_y, health_width, bar_height))
-
-    # ─────────────────────────────────────────────────────────
-    # Spawn helper (legado)
-    # ─────────────────────────────────────────────────────────
 
     @staticmethod
     def spawn_random(speed_multiplier=1.0, wave=1):

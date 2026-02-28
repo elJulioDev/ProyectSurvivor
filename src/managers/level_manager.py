@@ -6,6 +6,7 @@ LevelManager — Actualizado:
   · Explosiones del Exploder con daño en área.
   · Spawn circular pasando player_pos al SpawnManager.
   · Cap de enemigos dinámico hasta 800.
+  · Cámara inicializada con snap_to para evitar salto brusco al inicio.
 """
 import pygame
 import math
@@ -82,16 +83,15 @@ class LevelManager:
         self._teleport_timer   = 0
         self._explosion_flash  = 0
 
-    # ── Update principal ──────────────────────────────────────────────────────
+        # Snap de cámara: evita el salto brusco al inicio
+        self.camera.snap_to(self.player)
 
     def update(self, dt, keys, mouse_pos, mouse_pressed):
         if self.game_over or not self.player or not self.player.is_alive:
             self.game_over = True
             return
 
-        # ── LOD CORREGIDO: basado en enemigos VISIBLES, no en total ─────
-        # enemies_rendered se actualiza en render_world() del frame anterior.
-        # Usamos el valor del frame previo para no introducir lag de un frame.
+        # LOD CORREGIDO: basado en enemigos VISIBLES, no en total
         visible = self.enemies_rendered
         if visible < 200:
             self.particle_system.set_quality(2)
@@ -211,7 +211,6 @@ class LevelManager:
                 action['x'], action['y'],
                 action['damage'], action['radius']
             )
-            # Partículas de explosión
             self.particle_system.create_viscera_explosion(action['x'], action['y'])
             self._explosion_flash = 8
             if action.get('kill_self'):
@@ -233,20 +232,17 @@ class LevelManager:
                 self.enemy_projectiles.append(ep)
 
     def _handle_explosion(self, ex, ey, damage, radius):
-        """Daño en área al jugador (y a otros enemigos si se quiere en el futuro)."""
+        """Daño en área al jugador."""
         radius_sq = radius * radius
         px, py = self.player.x, self.player.y
         dx = px - ex
         dy = py - ey
         if dx * dx + dy * dy <= radius_sq:
-            # Falloff: más daño en el centro
             dist = math.sqrt(dx * dx + dy * dy) if (dx or dy) else 0
             falloff = max(0.2, 1.0 - (dist / radius) * 0.7)
             self.player.take_damage(int(damage * falloff))
-            # Cámara shake
             self.camera.add_shake(12)
 
-        # Onda de sangre/partículas en el radio
         self.particle_system.create_blood_pool(ex, ey)
 
     def _update_weapons(self, dt):
@@ -302,7 +298,6 @@ class LevelManager:
                 self.projectile_pool.return_to_pool(projectile)
 
     def _update_enemy_projectiles(self, dt):
-        """Mueve proyectiles enemigos y chequea colisión con el jugador."""
         alive = []
         for ep in self.enemy_projectiles:
             ep.update(dt)
@@ -327,8 +322,7 @@ class LevelManager:
         if xp_bonus > 0:
             self.player.gain_experience(xp_bonus)
 
-    # ── Fusión de gemas ───────────────────────────────────────────────────────
-
+    # Fusión de gemas
     def _merge_nearby_gems(self):
         if len(self.gems) < GEM_MERGE_MIN_COUNT:
             return
@@ -384,8 +378,7 @@ class LevelManager:
 
         self.gems = new_gems
 
-    # ── Renderizado ───────────────────────────────────────────────────────────
-
+    # Renderizado
     def render_world(self, screen):
         self._render_grid(screen)
 
@@ -404,7 +397,6 @@ class LevelManager:
             if self.camera.is_on_screen(projectile.rect):
                 projectile.render(screen, self.camera)
 
-        # Proyectiles enemigos
         for ep in self.enemy_projectiles:
             if self.camera.is_on_screen(ep.rect):
                 ep.render(screen, self.camera)
@@ -430,7 +422,6 @@ class LevelManager:
                                                       layer='air')
         self.particles_rendered = rendered_air
 
-        # Flash de explosión (overlay rojo tenue)
         if self._explosion_flash > 0:
             alpha = int(self._explosion_flash * 14)
             flash_surf = pygame.Surface(
@@ -466,8 +457,7 @@ class LevelManager:
             pygame.draw.line(screen, (100, 0, 0),
                              (0, line_y), (WINDOW_WIDTH, line_y), 2)
 
-    # ── Debug ─────────────────────────────────────────────────────────────────
-
+    # Debug
     def get_debug_info(self):
         active_particles = sum(1 for p in self.particle_pool.pool if p.is_alive)
         return {

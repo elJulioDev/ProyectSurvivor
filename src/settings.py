@@ -8,11 +8,10 @@ BASE_HEIGHT = 720
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
-# Configuración del Mundo
-WORLD_WIDTH = 2400 * 2
-WORLD_HEIGHT = 1800 * 2
+WORLD_WIDTH  = 2400 * 5   # 12 000 px de ancho
+WORLD_HEIGHT = 1800 * 5   # 9 000 px de alto
 
-FPS = 160
+FPS = 60
 TITLE = "ProyectSurvivor"
 
 # Colores (RGB)
@@ -47,25 +46,17 @@ CROSSHAIR_GAP = 4
 CROSSHAIR_THICKNESS = 2
 CROSSHAIR_DOT_SIZE = 2
 
-# ═══════════════════════════════════════════════════════════════════════════
 # SISTEMA DE MEJORAS — Categorías, Rarezas y Stats expandidos
-# ═══════════════════════════════════════════════════════════════════════════
-#
 # type:        'stat' | 'weapon' | 'xp' | 'unlock' | 'unlock_weapon'
 # rarity:      'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
 # category:    'movement' | 'survival' | 'weapons' | 'xp'
 # stackable:   Si puede elegirse más de una vez
 # max_stacks:  Límite de veces que puede acumularse (None = sin límite)
 # requires:    Condición para que aparezca (str con nombre de flag del player)
-#
-# ═══════════════════════════════════════════════════════════════════════════
 
 UPGRADES = {
 
-    # ═══════════════════════════════════════════
     # MOVIMIENTO
-    # ═══════════════════════════════════════════
-
     'dash': {
         'name': 'Dash Tactico',
         'desc': 'Desbloquea el Dash (Ctrl). Atraviesa la horda y esquiva en el ultimo segundo.',
@@ -107,10 +98,7 @@ UPGRADES = {
         'category': 'movement',
     },
 
-    # ═══════════════════════════════════════════
     # SUPERVIVENCIA
-    # ═══════════════════════════════════════════
-
     'health': {
         'name': 'Vitalidad',
         'desc': '+25 HP maximo. Mas margen para errores contra la horda.',
@@ -185,10 +173,7 @@ UPGRADES = {
         'category': 'survival',
     },
 
-    # ═══════════════════════════════════════════
     # ARMAS — GLOBALES
-    # ═══════════════════════════════════════════
-
     'weapon_damage': {
         'name': 'Potencia de Fuego',
         'desc': '+15% daño de TODAS las armas. Afecta pistola, escopeta, rifle y laser.',
@@ -276,10 +261,7 @@ UPGRADES = {
         'category': 'weapons',
     },
 
-    # ═══════════════════════════════════════════
     # ARMAS — DESBLOQUEOS
-    # ═══════════════════════════════════════════
-
     'unlock_shotgun': {
         'name': 'Escopeta',
         'desc': 'Desbloquea la escopeta (Tecla 2). 8 perdigones, devastadora a corto rango.',
@@ -305,10 +287,7 @@ UPGRADES = {
         'category': 'weapons',
     },
 
-    # ═══════════════════════════════════════════
     # XP Y GEMAS
-    # ═══════════════════════════════════════════
-
     'xp_magnet': {
         'name': 'Iman de XP',
         'desc': '+40% radio de atraccion de gemas. Recoge experiencia desde mas lejos.',

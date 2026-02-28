@@ -16,6 +16,23 @@ class Camera:
         self.shake_intensity = 0
         self.shake_decay = 0.9
 
+    def snap_to(self, target):
+        """
+        Posiciona la cámara instantáneamente sobre el target sin lerp.
+        Llamar una vez al inicio para evitar el salto brusco.
+        """
+        x = -target.rect.centerx + int(WINDOW_WIDTH / 2)
+        y = -target.rect.centery + int(WINDOW_HEIGHT / 2)
+
+        x = min(0, max(-(self.width - WINDOW_WIDTH), x))
+        y = min(0, max(-(self.height - WINDOW_HEIGHT), y))
+
+        self.true_scroll_x = float(x)
+        self.true_scroll_y = float(y)
+        self.offset_x = x
+        self.offset_y = y
+        self.camera = pygame.Rect(x, y, self.width, self.height)
+
     def add_shake(self, amount):
         self.shake_intensity = min(self.shake_intensity + amount, 20)
     
@@ -29,13 +46,8 @@ class Camera:
         return (x + self.offset_x, y + self.offset_y)
         
     def is_on_screen(self, rect):
-        """
-        Determina si un rectángulo (en coordenadas de mundo) 
-        debe renderizarse, aplicando un margen de seguridad.
-        """
         screen_rect = self.apply_rect(rect)
         display_area = self.viewport_rect.inflate(self.culling_margin, self.culling_margin)
-        
         return screen_rect.colliderect(display_area)
 
     def update(self, target, mouse_pos=None):

@@ -8,13 +8,8 @@ Layout:
   - Arma activa: bottom center
 """
 
-import pygame
-import math
+import pygame, math
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Paleta de colores del HUD
-# ──────────────────────────────────────────────────────────────────────────────
 class Palette:
     BG          = (10, 10, 14)
     BG_PANEL    = (18, 18, 26)
@@ -25,9 +20,9 @@ class Palette:
     GRAY        = (110, 110, 130)
     DIM         = (55, 55, 70)
 
-    HP_HIGH     = (46, 204, 113)    # verde
-    HP_MID      = (241, 196, 15)    # amarillo
-    HP_LOW      = (231, 76, 60)     # rojo
+    HP_HIGH     = (46, 204, 113)
+    HP_MID      = (241, 196, 15)
+    HP_LOW      = (231, 76, 60)
     HP_SHADOW   = (100, 20, 10)
 
     DASH_READY  = (0, 210, 255)
@@ -48,15 +43,11 @@ class HUD:
         self.screen = screen
         self.W = screen.get_width()
         self.H = screen.get_height()
-
-        # ── Fuentes ──────────────────────────────────────────────────────
         self.f_huge   = pygame.font.Font(None, 72)   # timer
         self.f_large  = pygame.font.Font(None, 48)   # score
         self.f_medium = pygame.font.Font(None, 34)   # labels
         self.f_small  = pygame.font.Font(None, 26)   # detalles
         self.f_tiny   = pygame.font.Font(None, 22)   # sub-labels
-
-        # ── Estado de animación ──────────────────────────────────────────
         self._damage_health  = 0.0    # barra de daño suavizada
         self._hp_pulse       = 0.0
         self._score_display  = 0.0    # contador animado
@@ -65,13 +56,7 @@ class HUD:
         self._level_prev     = 1
         self._time_pulse     = 0.0
         self._weapon_flash   = 0.0
-
-        # Superficies precacheadas
         self._panel_cache = {}
-
-    # ──────────────────────────────────────────────────────────────────────
-    # API pública
-    # ──────────────────────────────────────────────────────────────────────
 
     def render(self, player, wave_time_str, score=0, enemies_alive=0, dt=1.0):
         if not player:
@@ -84,10 +69,6 @@ class HUD:
         self._render_health_panel(player, dt)   # panel izquierdo
         self._render_score_panel(enemies_alive) # panel derecho
         self._render_weapon_indicator(player)   # bottom center
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Estado / animaciones
-    # ──────────────────────────────────────────────────────────────────────
 
     def _update_state(self, player, score, dt):
         # Inicialización
@@ -127,10 +108,6 @@ class HUD:
 
         self._time_pulse += 0.04 * dt
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Franja XP superior
-    # ──────────────────────────────────────────────────────────────────────
-
     def _render_xp_strip(self, player):
         STRIP_H = 20
         pct = player.experience / max(1, player.experience_next_level)
@@ -154,7 +131,7 @@ class HUD:
         pygame.draw.line(self.screen, Palette.BORDER_LIT,
                          (0, STRIP_H - 1), (self.W, STRIP_H - 1), 1)
 
-        # ── Pastilla de NIVEL centrada sobre la barra ──────────────────
+        # Pastilla de NIVEL centrada sobre la barra
         lv_text = f"LVL {player.level}"
         lv_surf = self.f_small.render(lv_text, True, Palette.WHITE)
         lw, lh = lv_surf.get_size()
@@ -171,10 +148,6 @@ class HUD:
 
         # Texto nivel
         self.screen.blit(lv_surf, (pill_x + pad_x, pill_y + pad_y))
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Temporizador (top center, bien separado del nivel)
-    # ──────────────────────────────────────────────────────────────────────
 
     def _render_timer(self, time_str):
         # Posición: centrado horizontalmente, debajo de la pastilla de nivel
@@ -196,10 +169,6 @@ class HUD:
         self.screen.blit(shadow, (cx + 2, TIME_Y + 2))
         self.screen.blit(surf,   (cx, TIME_Y))
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Panel de salud (top left)
-    # ──────────────────────────────────────────────────────────────────────
-
     def _render_health_panel(self, player, dt):
         PANEL_X = 16
         PANEL_Y = 28
@@ -213,7 +182,7 @@ class HUD:
         dmg_pct = max(0.0, self._damage_health / player.max_health)
         hp_color = self._get_hp_color(hp_pct)
 
-        # ── Icono cruz animada ─────────────────────────────────────────
+        # Icono cruz animada
         icon_cx = PANEL_X + 22
         icon_cy = PANEL_Y + 22
 
@@ -230,7 +199,7 @@ class HUD:
                          (icon_cx - arm, icon_cy),
                          (icon_cx + arm, icon_cy), thick)
 
-        # ── Barra de salud ─────────────────────────────────────────────
+        # Barra de salud
         BAR_X = PANEL_X + 42
         BAR_Y = PANEL_Y + 12
         BAR_W = PANEL_W - 55
@@ -263,7 +232,7 @@ class HUD:
         label = self.f_tiny.render("SALUD", True, Palette.DIM)
         self.screen.blit(label, (BAR_X, BAR_Y - 14))
 
-        # ── Barra dash ─────────────────────────────────────────────────
+        # Barra dash
         DASH_Y = BAR_Y + BAR_H + 8
 
         dash_pct = 1.0
@@ -292,10 +261,6 @@ class HUD:
         dl = self.f_tiny.render(dash_lbl, True, dash_color_lbl)
         self.screen.blit(dl, (BAR_X, DASH_Y + DASH_H + 3))
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Panel de score (top right)
-    # ──────────────────────────────────────────────────────────────────────
-
     def _render_score_panel(self, enemies_alive):
         PANEL_W = 220
         PANEL_H = 68
@@ -312,10 +277,6 @@ class HUD:
         sc_x = PANEL_X + PANEL_W - sc_surf.get_width() - 12
         self.screen.blit(sc_surf, (sc_x, PANEL_Y + 8))
 
-        # Label score
-        lbl = self.f_tiny.render("PUNTUACIÓN", True, Palette.DIM)
-        self.screen.blit(lbl, (PANEL_X + 12, PANEL_Y + 6))
-
         # Separador
         sep_y = PANEL_Y + PANEL_H // 2 + 4
         pygame.draw.line(self.screen, Palette.BORDER,
@@ -323,14 +284,10 @@ class HUD:
 
         # Enemigos
         en_color = Palette.ENEMIES if enemies_alive > 0 else Palette.GRAY
-        en_str = f"● {enemies_alive} ENEMIGOS"
+        en_str = f"{enemies_alive} ENEMIGOS"
         en_surf = self.f_small.render(en_str, True, en_color)
         en_x = PANEL_X + PANEL_W - en_surf.get_width() - 12
         self.screen.blit(en_surf, (en_x, sep_y + 6))
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Indicador de arma activa (bottom center)
-    # ──────────────────────────────────────────────────────────────────────
 
     def _render_weapon_indicator(self, player):
         if not player.weapons:
@@ -396,10 +353,7 @@ class HUD:
                     pygame.draw.rect(self.screen, wc,
                                      (sx + 5, bar_y, bar_w, 4), border_radius=2)
 
-    # ──────────────────────────────────────────────────────────────────────
     # Utilidades
-    # ──────────────────────────────────────────────────────────────────────
-
     def _get_hp_color(self, pct):
         if pct > 0.5:  return Palette.HP_HIGH
         if pct > 0.25: return Palette.HP_MID

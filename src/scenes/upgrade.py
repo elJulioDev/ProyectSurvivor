@@ -1,9 +1,5 @@
 """
-Escena de Mejoras — Rediseño completo
-  - Tarjetas visuales por rareza (Common / Uncommon / Rare / Epic / Legendary)
-  - Selección ponderada por rareza
-  - Manejo de max_stacks y requires
-  - Aplicación completa de todos los stats del nuevo sistema
+Escena de Mejoras — Tarjetas con bordes CUADRADOS
 """
 import pygame
 import random
@@ -11,9 +7,6 @@ import math
 from scenes.scene import Scene
 from settings import WINDOW_WIDTH, WINDOW_HEIGHT, UPGRADES
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Paleta de rarezas
-# ─────────────────────────────────────────────────────────────────────────────
 RARITY_COLORS = {
     'common':    (160, 165, 175),
     'uncommon':  (80,  200,  80),
@@ -35,7 +28,6 @@ RARITY_LABEL = {
     'epic':      'EPICO',
     'legendary': 'LEGENDARIO',
 }
-# Peso para la seleccion aleatoria (más bajo = menos probable)
 RARITY_WEIGHTS = {
     'common':    50,
     'uncommon':  28,
@@ -44,9 +36,6 @@ RARITY_WEIGHTS = {
     'legendary':  3,
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Iconos por categoría (usando caracteres unicode compatibles con pygame)
-# ─────────────────────────────────────────────────────────────────────────────
 CATEGORY_LABEL = {
     'movement': 'MOVIMIENTO',
     'survival': 'SUPERVIVENCIA',
@@ -59,17 +48,12 @@ CATEGORY_COLOR = {
     'weapons':  (255, 200,  50),
     'xp':       (150,  80, 255),
 }
-
-# Forma geométrica por categoría (dibujada con pygame)
-#  'triangle', 'diamond', 'star', 'gem'
 CATEGORY_SHAPE = {
     'movement': 'arrow',
     'survival': 'cross',
     'weapons':  'diamond',
     'xp':       'gem',
 }
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 CARD_W = 275
 CARD_H = 340
@@ -94,19 +78,12 @@ class UpgradeScene(Scene):
 
         self.options = self._select_upgrades()
         self.hovered_idx = -1
-        self.anim_timer = 0.0       # para animaciones generales
-        self.hover_scales = [1.0, 1.0, 1.0]  # escala suave de cada tarjeta
+        self.anim_timer = 0.0
+        self.hover_scales = [1.0, 1.0, 1.0]
 
-        # Fade-in
         self.fade_alpha = 255
         self.fade_speed = 18
-        
-        # Temporizador de seguridad para evitar misclicks (aprox 0.75 seg a 60FPS)
         self.input_cooldown = 45
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Selección de mejoras
-    # ──────────────────────────────────────────────────────────────────────────
 
     def _select_upgrades(self):
         player = self.gameplay_scene.level.player
@@ -114,36 +91,27 @@ class UpgradeScene(Scene):
         available_weights = []
 
         for key, upg in UPGRADES.items():
-            # Verificar requires
             req = upg.get('requires')
             if req == 'dash_unlocked' and not player.dash_unlocked:
                 continue
-
-            # Filtrar unlocks ya hechos
             if upg['type'] == 'unlock' and key == 'dash':
                 if player.dash_unlocked:
                     continue
             elif upg['type'] == 'unlock_weapon':
                 if upg['weapon_class'] in player.unlocked_weapons:
                     continue
-
-            # Verificar max_stacks
             max_stacks = upg.get('max_stacks')
             if max_stacks is not None:
                 current = player.upgrade_counts.get(key, 0)
                 if current >= max_stacks:
                     continue
-
-            # No-stackable ya elegida
             if not upg.get('stackable', False):
                 if player.upgrade_counts.get(key, 0) >= 1:
                     continue
-
             available_keys.append(key)
             rarity = upg.get('rarity', 'common')
             available_weights.append(RARITY_WEIGHTS.get(rarity, 20))
 
-        # Elegir 3 únicas con variedad de categorías si es posible
         chosen = []
         used_categories = set()
         keys_copy = list(available_keys)
@@ -155,57 +123,42 @@ class UpgradeScene(Scene):
             idx = random.choices(range(len(keys_copy)), weights=weights_copy, k=1)[0]
             key = keys_copy[idx]
             cat = UPGRADES[key].get('category', '')
-
-            # Preferir variedad de categorías pero no forzarla si no hay opciones
             if cat not in used_categories or attempts > 30:
                 chosen.append(key)
                 used_categories.add(cat)
-            # Siempre eliminar del pool para no repetir
             keys_copy.pop(idx)
             weights_copy.pop(idx)
 
-        # Fallback si hay menos de 3 opciones
         while len(chosen) < 3:
             valid_stackables = []
             for k, v in UPGRADES.items():
                 if v.get('stackable', False) and k not in chosen:
                     max_stacks = v.get('max_stacks')
                     current_stacks = player.upgrade_counts.get(k, 0)
-                    
-                    # Solo añadir si no tiene límite o si no ha alcanzado el límite
                     if max_stacks is None or current_stacks < max_stacks:
                         valid_stackables.append(k)
-            
             if valid_stackables:
                 chosen.append(random.choice(valid_stackables))
             else:
-                # Si el jugador ya maxeó absolutamente todo, salimos del bucle
                 break
 
         return chosen[:3]
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Eventos
-    # ──────────────────────────────────────────────────────────────────────────
-
     def handle_events(self, event):
         mouse_pos = self.game.get_mouse_pos()
 
-        # Detectar hover
         self.hovered_idx = -1
         for i in range(len(self.options)):
             card_rect = self._get_card_rect(i)
             if card_rect.collidepoint(mouse_pos):
                 self.hovered_idx = i
 
-        # Clic 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.hovered_idx >= 0 and self.input_cooldown <= 0:
                 self._apply_upgrade(self.options[self.hovered_idx])
                 pygame.mouse.set_visible(False)
                 self.game.current_scene = self.gameplay_scene
 
-        # Teclado 1/2/3 para elegir rápido
         if event.type == pygame.KEYDOWN and self.input_cooldown <= 0:
             if event.key == pygame.K_1 and len(self.options) >= 1:
                 self._apply_upgrade(self.options[0])
@@ -220,106 +173,50 @@ class UpgradeScene(Scene):
                 pygame.mouse.set_visible(False)
                 self.game.current_scene = self.gameplay_scene
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Aplicación de mejoras
-    # ──────────────────────────────────────────────────────────────────────────
-
     def _apply_upgrade(self, key):
         player   = self.gameplay_scene.level.player
         upg      = UPGRADES[key]
         proj_pool = self.gameplay_scene.level.projectile_pool
 
-        # Registrar uso
         player.upgrade_counts[key] = player.upgrade_counts.get(key, 0) + 1
-
         utype = upg['type']
 
-        # ── Desbloqueos especiales ──────────────────────────────────────
         if utype == 'unlock' and key == 'dash':
             player.dash_unlocked = True
-
         elif utype == 'unlock_weapon':
             player.add_weapon(upg['weapon_class'], proj_pool)
-
-        # ── Stats del jugador ───────────────────────────────────────────
         elif utype == 'stat':
             sname = upg['stat_name']
             val   = upg['value']
-
-            if sname == 'max_speed':
-                player.max_speed *= val
-
+            if sname == 'max_speed':          player.max_speed *= val
             elif sname == 'max_health':
                 player.max_health += val
                 player.health = min(player.health + val, player.max_health)
-
-            elif sname == 'health_regen':
-                player.health_regen += val
-
-            elif sname == 'damage_reduction':
-                # Máximo 75% de reducción
-                player.damage_reduction = min(0.75, player.damage_reduction + val)
-
-            elif sname == 'lifesteal':
-                player.lifesteal += int(val)
-
-            elif sname == 'emergency_regen':
-                player.emergency_regen += val
-
-            elif sname == 'invulnerable_mult':
-                player.invulnerable_mult *= val
-
-            elif sname == 'dash_cooldown':
-                player.dash_cooldown = max(10, int(player.dash_cooldown * val))
-
-            elif sname == 'dash_duration':
-                player.dash_duration = int(player.dash_duration * val)
-
-        # ── Stats de armas ──────────────────────────────────────────────
+            elif sname == 'health_regen':     player.health_regen += val
+            elif sname == 'damage_reduction': player.damage_reduction = min(0.75, player.damage_reduction + val)
+            elif sname == 'lifesteal':        player.lifesteal += int(val)
+            elif sname == 'emergency_regen':  player.emergency_regen += val
+            elif sname == 'invulnerable_mult':player.invulnerable_mult *= val
+            elif sname == 'dash_cooldown':    player.dash_cooldown = max(10, int(player.dash_cooldown * val))
+            elif sname == 'dash_duration':    player.dash_duration = int(player.dash_duration * val)
         elif utype == 'weapon':
             sname = upg['stat_name']
             val   = upg['value']
-
-            if sname == 'global_damage_mult':
-                player.global_damage_mult *= val
-
-            elif sname == 'global_cooldown_mult':
-                player.global_cooldown_mult *= val
-
-            elif sname == 'projectile_speed_mult':
-                player.projectile_speed_mult *= val
-
-            elif sname == 'extra_penetration':
-                player.extra_penetration += int(val)
-
-            elif sname == 'projectile_size_mult':
-                player.projectile_size_mult *= val
-
-            elif sname == 'knockback_mult':
-                player.knockback_mult *= val
-
-        # ── Stats de XP / Gemas ─────────────────────────────────────────
+            if sname == 'global_damage_mult':    player.global_damage_mult *= val
+            elif sname == 'global_cooldown_mult':player.global_cooldown_mult *= val
+            elif sname == 'projectile_speed_mult':player.projectile_speed_mult *= val
+            elif sname == 'extra_penetration':   player.extra_penetration += int(val)
+            elif sname == 'projectile_size_mult':player.projectile_size_mult *= val
+            elif sname == 'knockback_mult':      player.knockback_mult *= val
         elif utype == 'xp':
             sname = upg['stat_name']
             val   = upg['value']
-
-            if sname == 'magnet_range_mult':
-                player.magnet_range_mult *= val
-
-            elif sname == 'xp_mult':
-                player.xp_mult *= val
-
-            elif sname == 'xp_on_kill_bonus':
-                player.xp_on_kill_bonus += int(val)
-
-            elif sname == 'magnet_speed_mult':
-                player.magnet_speed_mult *= val
+            if sname == 'magnet_range_mult':   player.magnet_range_mult *= val
+            elif sname == 'xp_mult':           player.xp_mult *= val
+            elif sname == 'xp_on_kill_bonus':  player.xp_on_kill_bonus += int(val)
+            elif sname == 'magnet_speed_mult': player.magnet_speed_mult *= val
 
         print(f"✅ Mejora aplicada: [{upg['rarity'].upper()}] {upg['name']}")
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Update
-    # ──────────────────────────────────────────────────────────────────────────
 
     def update(self):
         self.anim_timer += 0.04
@@ -336,58 +233,42 @@ class UpgradeScene(Scene):
             if self._get_card_rect(i).collidepoint(mouse_pos):
                 self.hovered_idx = i
 
-        # Animar escala de tarjetas
         for i in range(len(self.options)):
             target = 1.04 if i == self.hovered_idx else 1.0
             self.hover_scales[i] += (target - self.hover_scales[i]) * 0.15
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Render
-    # ──────────────────────────────────────────────────────────────────────────
-
     def render(self):
-        # 1. Fondo: juego congelado
         self.gameplay_scene.render()
 
-        # 2. Overlay oscuro animado
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 210))
         self.screen.blit(overlay, (0, 0))
 
-        # 3. Título
         player_level = self.gameplay_scene.level.player.level
         self._draw_title(player_level)
 
-        # 4. Subtítulo
         sub_surf = self.font_sub.render(
             "Elige una mejora   |   Teclas 1  2  3",
             True, (100, 105, 120)
         )
         self.screen.blit(sub_surf, (WINDOW_WIDTH // 2 - sub_surf.get_width() // 2, 140))
 
-        # 5. Tarjetas
         for i, key in enumerate(self.options):
             self._draw_card(i, key)
 
-        # 6. Fade-in inicial
         if self.fade_alpha > 0:
             fade_surf = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
             fade_surf.fill((0, 0, 0, self.fade_alpha))
             self.screen.blit(fade_surf, (0, 0))
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Helpers de render
-    # ──────────────────────────────────────────────────────────────────────────
+    # Helpers render
 
     def _draw_title(self, level):
-        # Glow detrás del texto
         glow_val = int(abs(math.sin(self.anim_timer)) * 40 + 180)
         title_color = (255, glow_val, 40)
-
         title_str = f"NIVEL {level} ALCANZADO"
         shadow = self.font_title.render(title_str, True, (80, 40, 0))
         title  = self.font_title.render(title_str, True, title_color)
-
         cx = WINDOW_WIDTH // 2
         self.screen.blit(shadow, (cx - shadow.get_width() // 2 + 3, 73))
         self.screen.blit(title,  (cx - title.get_width()  // 2,     70))
@@ -397,22 +278,20 @@ class UpgradeScene(Scene):
         return pygame.Rect(x, CARDS_Y, CARD_W, CARD_H)
 
     def _draw_card(self, index, key):
-        upg     = UPGRADES[key]
-        rarity  = upg.get('rarity', 'common')
-        cat     = upg.get('category', 'weapons')
+        upg    = UPGRADES[key]
+        rarity = upg.get('rarity', 'common')
+        cat    = upg.get('category', 'weapons')
 
-        rc  = RARITY_COLORS.get(rarity,  (150, 150, 150))
-        rbg = RARITY_BG.get(rarity,      (18,  18,  22))
+        rc        = RARITY_COLORS.get(rarity,  (150, 150, 150))
+        rbg       = RARITY_BG.get(rarity,      (18,  18,  22))
         cat_color = CATEGORY_COLOR.get(cat, (150, 150, 150))
 
         is_hovered = (index == self.hovered_idx)
         scale      = self.hover_scales[index]
 
-        # ── Calcular geometría escalada ──────────────────────────────
         base_x = CARDS_START_X + index * (CARD_W + CARD_GAP)
         base_y = CARDS_Y
 
-        # Escalar desde el centro de la tarjeta
         cw = int(CARD_W * scale)
         ch = int(CARD_H * scale)
         cx = base_x + CARD_W // 2
@@ -422,72 +301,66 @@ class UpgradeScene(Scene):
 
         card_rect = pygame.Rect(x, y, cw, ch)
 
-        # ── Sombra ────────────────────────────────────────────────────
+        # Sombra (sin radio)
         shadow_surf = pygame.Surface((cw + 20, ch + 20), pygame.SRCALPHA)
-        pygame.draw.rect(shadow_surf, (0, 0, 0, 120),
-                         (0, 0, cw + 20, ch + 20), border_radius=18)
+        pygame.draw.rect(shadow_surf, (0, 0, 0, 120), (0, 0, cw + 20, ch + 20))
         self.screen.blit(shadow_surf, (x - 10 + 8, y - 10 + 8))
 
-        # ── Glow de rareza (más intenso al hacer hover) ───────────────
+        # Glow de rareza
         glow_alpha = 80 if is_hovered else 30
         if is_hovered:
             pulse = abs(math.sin(self.anim_timer * 3))
             glow_alpha = int(60 + pulse * 50)
         glow_surf = pygame.Surface((cw + 30, ch + 30), pygame.SRCALPHA)
-        pygame.draw.rect(glow_surf, (*rc, glow_alpha),
-                         (0, 0, cw + 30, ch + 30), border_radius=22)
+        pygame.draw.rect(glow_surf, (*rc, glow_alpha), (0, 0, cw + 30, ch + 30))
         self.screen.blit(glow_surf, (x - 15, y - 15))
 
-        # ── Fondo de la tarjeta ───────────────────────────────────────
-        pygame.draw.rect(self.screen, rbg, card_rect, border_radius=14)
+        # Fondo de la tarjeta (cuadrado)
+        pygame.draw.rect(self.screen, rbg, card_rect)
 
-        # ── Franja de color de categoría en la parte superior ─────────
-        stripe_h = 6
-        stripe_surf = pygame.Surface((cw, stripe_h), pygame.SRCALPHA)
-        stripe_surf.fill((*cat_color, 200))
-        self.screen.blit(stripe_surf, (x, y))
-        # Rounded top: re-draw corners
-        pygame.draw.rect(self.screen, rbg,
-                         (x, y, cw, 14), border_radius=14)
-        pygame.draw.rect(self.screen, cat_color,
-                         (x + 2, y + 1, cw - 4, 5))
+        # Franja de color de categoría en la parte superior
+        pygame.draw.rect(self.screen, cat_color, (x, y, cw, 5))
 
-        # ── Borde ─────────────────────────────────────────────────────
+        # Borde cuadrado
         border_w = 2 if not is_hovered else 3
-        pygame.draw.rect(self.screen, rc, card_rect, border_w, border_radius=14)
+        pygame.draw.rect(self.screen, rc, card_rect, border_w)
 
-        # ── Número de tecla (esquina sup-izq) ─────────────────────────
+        # Línea interior de acento (da profundidad sin redondear)
+        inner = card_rect.inflate(-6, -6)
+        pygame.draw.rect(self.screen, (*rc, 30), inner, 1)
+
+        # Número de tecla (esquina sup-izq)
         num_surf = self.font_pick.render(str(index + 1), True, (60, 65, 75))
         self.screen.blit(num_surf, (x + 10, y + 10))
 
-        # ── Label rareza (esquina sup-der) ────────────────────────────
+        # Label rareza (esquina sup-der)
         rlabel = RARITY_LABEL.get(rarity, rarity.upper())
         rl_surf = self.font_rarity.render(rlabel, True, rc)
         self.screen.blit(rl_surf, (x + cw - rl_surf.get_width() - 10, y + 12))
 
-        # ── Icono / forma de categoría ────────────────────────────────
+        # Icono categoría
         icon_cx = x + cw // 2
         icon_cy = y + 65
         self._draw_category_icon(icon_cx, icon_cy, cat, cat_color, scale * 22)
 
-        # ── Label de categoría ────────────────────────────────────────
+        # Label de categoría
         cat_label = CATEGORY_LABEL.get(cat, cat.upper())
         cl_surf = self.font_cat.render(cat_label, True, cat_color)
         self.screen.blit(cl_surf,
                          (x + cw // 2 - cl_surf.get_width() // 2, y + 95))
 
-        # ── Separador ────────────────────────────────────────────────
+        # Separador
         sep_y = y + 115
         sep_surf = pygame.Surface((cw - 32, 1), pygame.SRCALPHA)
         sep_surf.fill((*rc, 60))
         self.screen.blit(sep_surf, (x + 16, sep_y))
 
-        # ── Nombre de la mejora ────────────────────────────────────────
+        # Nombre de la mejora
         name_surf = self.font_name.render(upg['name'], True, (235, 235, 245))
         name_x = x + cw // 2 - name_surf.get_width() // 2
         self.screen.blit(name_surf, (name_x, sep_y + 10))
 
-        # ── Descripción con word wrap ─────────────────────────────────
+        # Descripción con word wrap
         self._draw_wrapped_text(
             upg['desc'],
             self.font_desc,
@@ -497,33 +370,30 @@ class UpgradeScene(Scene):
             line_height=20
         )
 
-        # ── Indicador "ELEGIR" al hacer hover ─────────────────────────
+        # Indicador "ELEGIR" al hacer hover
         if is_hovered:
             pulse = abs(math.sin(self.anim_timer * 4))
-            pick_alpha = int(180 + pulse * 75)
             pick_color = (min(255, rc[0]), min(255, rc[1]), min(255, rc[2]))
-            pick_surf = self.font_pick.render("▶  ELEGIR", True, pick_color)
+            pick_surf = self.font_pick.render("ELEGIR", True, pick_color)
             px_ = x + cw // 2 - pick_surf.get_width() // 2
             py_ = y + ch - 32
-            # Fondo del botón
             btn_bg = pygame.Surface((pick_surf.get_width() + 20, 26), pygame.SRCALPHA)
             btn_bg.fill((*rc, 30))
             self.screen.blit(btn_bg, (px_ - 10, py_ - 3))
             self.screen.blit(pick_surf, (px_, py_))
+            # Línea inferior de acento al hacer hover
+            pygame.draw.line(self.screen, rc, (x, y + ch - 1), (x + cw, y + ch - 1), 2)
         else:
-            # Indicador sutil cuando no está en hover
             idle_surf = self.font_rarity.render(f"Tecla  {index + 1}", True, (50, 55, 65))
             self.screen.blit(idle_surf,
                              (x + cw // 2 - idle_surf.get_width() // 2,
                               y + ch - 22))
 
     def _draw_category_icon(self, cx, cy, category, color, size):
-        """Dibuja una forma geométrica representando la categoría."""
         s = int(size)
         shape = CATEGORY_SHAPE.get(category, 'diamond')
 
         if shape == 'arrow':
-            # Triángulo apuntando a la derecha (movimiento)
             pts = [
                 (cx - s, cy - s * 0.7),
                 (cx - s, cy + s * 0.7),
@@ -533,15 +403,11 @@ class UpgradeScene(Scene):
             pygame.draw.polygon(self.screen, (255, 255, 255), pts, 2)
 
         elif shape == 'cross':
-            # Cruz (supervivencia/salud)
             w = max(3, s // 3)
-            pygame.draw.rect(self.screen, color,
-                             (cx - w, cy - s, w * 2, s * 2))
-            pygame.draw.rect(self.screen, color,
-                             (cx - s, cy - w, s * 2, w * 2))
+            pygame.draw.rect(self.screen, color, (cx - w, cy - s, w * 2, s * 2))
+            pygame.draw.rect(self.screen, color, (cx - s, cy - w, s * 2, w * 2))
 
         elif shape == 'diamond':
-            # Rombo (armas)
             pts = [
                 (cx,     cy - s),
                 (cx + s, cy),
@@ -552,7 +418,6 @@ class UpgradeScene(Scene):
             pygame.draw.polygon(self.screen, (255, 255, 255), pts, 2)
 
         elif shape == 'gem':
-            # Hexágono irregular tipo gema (XP)
             pts = []
             for i in range(6):
                 a = math.radians(i * 60 - 30)
