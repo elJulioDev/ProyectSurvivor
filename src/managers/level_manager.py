@@ -82,10 +82,6 @@ class LevelManager:
 
         self.camera.snap_to(self.player)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Update principal
-    # ─────────────────────────────────────────────────────────────────────────
-
     def update(self, dt, keys, mouse_pos, mouse_pressed, mobile=None):
         """
         Actualiza toda la lógica del juego.
@@ -107,7 +103,7 @@ class LevelManager:
         else:
             self.particle_system.set_quality(0)
 
-        # ── Input del jugador ─────────────────────────────────────────────────
+        # Input del jugador
         use_mobile = mobile is not None and mobile.enabled
 
         if use_mobile:
@@ -192,8 +188,7 @@ class LevelManager:
 
         self.frame_counter += 1
 
-    # ── Entidades ─────────────────────────────────────────────────────────────
-
+    # Entidades
     def _update_enemies(self, dt):
         player_pos = self.player.get_position()
 

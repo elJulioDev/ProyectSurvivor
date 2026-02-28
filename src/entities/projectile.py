@@ -97,10 +97,6 @@ class Projectile:
                         (screen_pos[0] - rotated_surf.get_width() // 2,
                          screen_pos[1] - rotated_surf.get_height() // 2))
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 class EnemyProjectile:
     """
     Proyectil disparado por un enemigo que daña al jugador.

@@ -9,7 +9,6 @@ import random
 from scenes.scene import Scene
 from settings import WINDOW_WIDTH, WINDOW_HEIGHT
 
-# ── Paleta (coherente con menu.py) ────────────────────────────────────────────
 C_BG       = (6,   7,  10)
 C_RED      = (210,  30,  30)
 C_RED_DARK = (100,  10,  10)
@@ -55,7 +54,6 @@ class _DebrisShard:
         else:
             self.life += dt
             self.alpha = int(max(0, 240 * (1 - self.life / self.max_life)))
-
 
 class _StatBadge:
     """Tarjeta de estadística con animación de entrada."""
@@ -110,7 +108,6 @@ class _StatBadge:
                                   int(self.color[2]*a/255)))
         screen.blit(lsurf, (x + 16, y + 10))
         screen.blit(vsurf, (x + 16, y + 30))
-
 
 class _TapButton:
     """Botón grande y táctil."""
@@ -198,9 +195,6 @@ class _TapButton:
         screen.blit(sh2, (tx + 2, ty + 2))
         screen.blit(surf, (tx, ty))
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-
 class GameOverScene(Scene):
 
     def __init__(self, game, final_score, final_time_str):
@@ -269,8 +263,6 @@ class GameOverScene(Scene):
         self.content_prog = 0.0
         self.buttons_prog = 0.0
 
-    # ─── events ──────────────────────────────────────────────────────────────
-
     def handle_events(self, event):
         if self.buttons_prog < 0.3:
             return
@@ -307,8 +299,6 @@ class GameOverScene(Scene):
         from scenes.menu import MenuScene
         self.next_scene = MenuScene(self.game)
 
-    # ─── update ──────────────────────────────────────────────────────────────
-
     def update(self):
         dt = 1.0  # escena no tiene su propio clock; se llama ~60 fps desde main
 
@@ -342,8 +332,6 @@ class GameOverScene(Scene):
         mouse_pos = self.game.get_mouse_pos()
         self.btn_retry.update(mouse_pos, dt, self.buttons_prog)
         self.btn_menu.update(mouse_pos,  dt, self.buttons_prog)
-
-    # ─── render ──────────────────────────────────────────────────────────────
 
     def render(self):
         self.screen.fill(C_BG)

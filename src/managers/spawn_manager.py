@@ -31,10 +31,6 @@ class SpawnManager:
 
         self.dead_pool: list[Enemy] = []
 
-    # ──────────────────────────────────────────────────────────────────────
-    # API pública
-    # ──────────────────────────────────────────────────────────────────────
-
     def add_to_dead_pool(self, enemy: Enemy):
         self.dead_pool.append(enemy)
 
@@ -95,10 +91,6 @@ class SpawnManager:
         mins = seconds_total // 60
         secs = seconds_total % 60
         return f"{mins:02d}:{secs:02d}"
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Lógica interna
-    # ──────────────────────────────────────────────────────────────────────
 
     def _spawn_enemy(self, camera_offset=(0, 0), player_pos=None):
         enemy_type  = self._pick_enemy_type()

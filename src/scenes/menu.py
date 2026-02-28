@@ -10,7 +10,6 @@ import sys
 from scenes.scene import Scene
 from settings import BLACK, WHITE, WINDOW_WIDTH, WINDOW_HEIGHT
 
-# ── Paleta ────────────────────────────────────────────────────────────────────
 C_BG         = (6,  7,  10)
 C_BG2        = (10, 12, 18)
 C_RED        = (210,  30,  30)
@@ -24,7 +23,6 @@ C_BORDER     = (40,  44,  62)
 C_BORDER_LIT = (70,  75, 110)
 C_ACCENT     = (200,  20,  20)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 def _surf_alpha(w, h):
     s = pygame.Surface((w, h), pygame.SRCALPHA)
     return s
@@ -67,7 +65,6 @@ class _Particle:
         if t > 0.8: return int((1 - t) / 0.2 * 160)
         return 160
 
-
 class _ScanLine:
     """Línea de escaneo horizontal decorativa."""
     def __init__(self):
@@ -81,7 +78,6 @@ class _ScanLine:
             self.y = -2
             self.alpha = random.randint(8, 22)
             self.speed = random.uniform(0.2, 0.8)
-
 
 class BigButton:
     """Botón grande táctil con animaciones propias."""
@@ -176,9 +172,7 @@ class BigButton:
         screen.blit(shadow, (tx + 2, ty + 2))
         screen.blit(surf,   (tx, ty))
 
-
 class MenuScene(Scene):
-    # ─── init ────────────────────────────────────────────────────────────────
 
     def __init__(self, game):
         super().__init__(game)
@@ -228,8 +222,6 @@ class MenuScene(Scene):
                          (0, WINDOW_HEIGHT * 0.8), (WINDOW_WIDTH * 0.8, 0), 1)
         return s
 
-    # ─── events ──────────────────────────────────────────────────────────────
-
     def handle_events(self, event):
         vpos = self._vpos(event)
         mouse_pos = self.game.get_mouse_pos()
@@ -261,8 +253,6 @@ class MenuScene(Scene):
                     (ry - self.game.render_offset_y) / scale)
         return self.game.get_mouse_pos()
 
-    # ─── update ──────────────────────────────────────────────────────────────
-
     def update(self):
         dt_ms = self.clock.tick(60)
         dt    = dt_ms / 16.667
@@ -287,8 +277,6 @@ class MenuScene(Scene):
         if self._glitch_active and self._glitch_timer > 6:
             self._glitch_active = False
             self._glitch_timer  = 0
-
-    # ─── render ──────────────────────────────────────────────────────────────
 
     def render(self):
         self.screen.fill(C_BG)
@@ -426,11 +414,11 @@ class MenuScene(Scene):
                          (px + 12, py + 28), (px + pw - 12, py + 28), 1)
 
         controls = [
-            ("WASD / ↑↓←→",  "Mover"),
+            ("WASD",           "Mover"),
             ("Mouse",          "Apuntar"),
             ("Click Izq",      "Disparar"),
             ("1 – 4",          "Cambiar arma"),
-            ("Ctrl",           "Dash  (si desbloqueado)"),
+            ("Ctrl",           "Dash"),
             ("ESC / Enter",    "Pausa"),
         ]
         f_ctrl = pygame.font.Font(None, 22)

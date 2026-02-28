@@ -243,7 +243,7 @@ class MobileControls:
 
     # Botones
     _POS_DASH  = (960, 548)
-    _POS_PAUSE = (1242, 36)
+    _POS_PAUSE = (1242, 120)
 
     def __init__(self,
                  screen_w: int = 1280,

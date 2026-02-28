@@ -60,9 +60,7 @@ class Player:
 
         self.last_shot_time = 0
 
-        # ══════════════════════════════════════════════════════════
         # STATS DE MEJORAS — Globales de armas
-        # ══════════════════════════════════════════════════════════
         self.global_damage_mult    = 1.0
         self.global_cooldown_mult  = 1.0
         self.projectile_speed_mult = 1.0
@@ -70,34 +68,26 @@ class Player:
         self.extra_penetration     = 0
         self.knockback_mult        = 1.0
 
-        # ══════════════════════════════════════════════════════════
         # STATS DE MEJORAS — Supervivencia
-        # ══════════════════════════════════════════════════════════
         self.health_regen      = 0.0
         self.damage_reduction  = 0.0
         self.lifesteal         = 0
         self.emergency_regen   = 0.0
         self.invulnerable_mult = 1.0
 
-        # ══════════════════════════════════════════════════════════
         # STATS DE MEJORAS — XP / Gemas
-        # ══════════════════════════════════════════════════════════
         self.xp_mult           = 1.0
         self.magnet_range_mult = 1.0
         self.magnet_speed_mult = 1.0
         self.xp_on_kill_bonus  = 0
 
-        # ══════════════════════════════════════════════════════════
         # SISTEMA DE NIVEL
-        # ══════════════════════════════════════════════════════════
         self.level = 1
         self.experience = 0
         self.experience_next_level = 50
         self.pending_level_ups = 0
 
         self.upgrade_counts: dict = {}
-
-    # ─── XP ────────────────────────────────────────────────────────────────
 
     def gain_experience(self, amount):
         if not self.is_alive:
@@ -112,8 +102,6 @@ class Player:
             self.experience_next_level = int(self.experience_next_level * 1.2)
             leveled_up = True
         return leveled_up
-
-    # ─── Input ─────────────────────────────────────────────────────────────
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -278,8 +266,6 @@ class Player:
             self.unlocked_weapons.add(weapon_class)
             print(f"✅ Arma desbloqueada: {weapon_class}")
 
-    # ─── Update ────────────────────────────────────────────────────────────
-
     def update(self, dt=1.0):
         if not self.is_alive:
             return
@@ -336,8 +322,6 @@ class Player:
         if self.damage_flash > 0:      self.damage_flash -= 1 * dt
         if self.invulnerable_frames > 0: self.invulnerable_frames -= 1 * dt
 
-    # ─── Combate ───────────────────────────────────────────────────────────
-
     def take_damage(self, damage):
         if not self.is_alive or self.invulnerable_frames > 0 or self.dash_active:
             return
@@ -364,8 +348,6 @@ class Player:
         if did_shoot:
             self.last_shot_time = pygame.time.get_ticks()
         return did_shoot
-
-    # ─── Render ────────────────────────────────────────────────────────────
 
     def render(self, screen, camera):
         if not self.is_alive:

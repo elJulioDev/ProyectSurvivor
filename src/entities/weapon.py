@@ -8,7 +8,6 @@ Sistema de armas con soporte completo para multiplicadores del jugador:
 """
 import math, random, pygame, os
 
-
 def load_sound(filename):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(current_dir))
@@ -23,7 +22,6 @@ def load_sound(filename):
     except Exception as e:
         print(f"Advertencia: no se pudo cargar {filename}. Error: {e}")
         return None
-
 
 class Weapon:
     def __init__(self, owner, cooldown=60, damage=10, kickback=0, shake=0, spread=0):
@@ -82,9 +80,6 @@ class Weapon:
     def activate(self, camera=None):
         return False
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-
 class PistolWeapon(Weapon):
     def __init__(self, owner):
         super().__init__(owner, cooldown=12, damage=12, kickback=0, shake=2.0, spread=0.02)
@@ -117,7 +112,6 @@ class PistolWeapon(Weapon):
 
         self.current_spread = min(self.current_spread + 0.05, 0.15)
         return True
-
 
 class ShotgunWeapon(Weapon):
     def __init__(self, owner):
@@ -156,7 +150,6 @@ class ShotgunWeapon(Weapon):
             self._apply_player_proj_mods(p)
 
         return True
-
 
 class LaserWeapon(Weapon):
     def __init__(self, owner):
@@ -205,7 +198,6 @@ class LaserWeapon(Weapon):
 
             pygame.draw.line(screen, (0, 200, 255), start, end, width + 4)
             pygame.draw.line(screen, (255, 255, 255), start, end, width)
-
 
 class AssaultRifleWeapon(Weapon):
     def __init__(self, owner):
