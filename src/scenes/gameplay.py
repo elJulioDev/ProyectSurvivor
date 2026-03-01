@@ -72,7 +72,6 @@ class GameplayScene(Scene):
             pygame.mouse.set_visible(self.mobile.enabled)
             return
 
-        # F6: ciclo de FPS objetivo
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F6:
             fps_cycle = [60, 120, 240, 0]
             idx = fps_cycle.index(self.target_fps) if self.target_fps in fps_cycle else 0
@@ -117,18 +116,10 @@ class GameplayScene(Scene):
         self.game.current_scene = PauseScene(self.game, self)
 
     def update(self):
-        # --- DELTA TIME ---
-        # clock.tick(0) = sin límite, retorna ms reales desde el último tick.
-        # Normalizamos SIEMPRE a unidades de "frame a 60fps":
-        #   dt=1.0  → 60fps  (16.67ms)
-        #   dt=0.5  → 120fps (8.33ms)
-        #   dt=0.25 → 240fps (4.17ms)
-        #   dt=2.0  → 30fps  (33.33ms)
         elapsed_ms = self.clock.tick(self.target_fps)
         raw_dt     = elapsed_ms / self._dt_norm
-        self.dt    = min(raw_dt, 2.5)   # Clamp: evita spike >2.5× en freezes
+        self.dt    = min(raw_dt, 2.5)
 
-        # Level-up
         if self.level.player and self.level.player.pending_level_ups > 0:
             self.level.player.pending_level_ups -= 1
             from scenes.upgrade import UpgradeScene
@@ -226,12 +217,17 @@ class GameplayScene(Scene):
         d     = self.level.get_debug_info()
         fps_lbl = f"{self.target_fps}fps" if self.target_fps > 0 else "ILIMITADO"
         mobile_str = "ON [F5 desact.]" if self.mobile.enabled else "OFF [F5 act.]"
+
+        # Calidad legible
+        q_labels = {0: "CRISIS (0)", 1: "MEDIO (1)", 2: "ALTO (2)"}
+        q_str = q_labels.get(d.get('particle_quality', 2), "?")
+
         texts = [
             f"FPS real: {fps:.1f}  |  DeltaTime: {dt_ms:.2f}ms  |  Objetivo: {fps_lbl} [F6 ciclo]",
             f"Enemigos vivos: {d['enemies_total']} (Visibles: {d['enemies_rendered']})  |  Dead pool: {d['dead_pool_size']}",
             f"Proyectiles: {d['projectiles']}  |  Enemi: {d['enemy_projectiles']}",
-            f"Partículas: {d['particles_active']} (render: {d['particles_rendered']}) / {d['particles_capacity']}",
-            f"Gemas XP: {d['gems_count']}",
+            f"Partículas: {d['particles_active']} (render: {d['particles_rendered']}) / {d['particles_capacity']}  |  Calidad: {q_str}",
+            f"Kills este frame: {d.get('kills_this_frame', 0)}  |  Gemas XP: {d['gems_count']}",
             f"Móvil: {mobile_str}",
             f"[X] Toggle Debug",
         ]

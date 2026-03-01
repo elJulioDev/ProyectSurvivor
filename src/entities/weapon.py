@@ -9,6 +9,11 @@ Sistema de armas con soporte completo para multiplicadores del jugador:
 NUEVAS ARMAS:
   - SniperWeapon: Rifle de Caza — máxima penetración (8 base), daño masivo (110),
     disparo lento (100 frames). Proyectil fucsia ultrarrápido (38px/frame).
+
+MEJORAS v2:
+  - SniperWeapon.render(): Mira infrarroja (laser sight rojo) siempre visible
+    cuando el Francotirador es el arma activa. Dibuja una línea delgada roja
+    con glow exterior sin crear Surfaces por frame (draw.line directo).
 """
 import math, random, pygame, os
 from utils.paths import resource_path
@@ -248,15 +253,21 @@ class SniperWeapon(Weapon):
       · Velocidad:   38 px/frame — el proyectil más rápido
       · Dispersión:  0.0 — disparo perfectamente preciso
 
-    Visuals distintivos:
-      · Proyectil fucsia (255, 30, 180) delgado
-      · Destello de cañón blanco-fucsia al disparar
-      · Línea de trayectoria fantasma que se desvanece
+    COLISIÓN SWEPT:
+      La velocidad alta (38+ px/frame con mejoras) provocaba que las balas
+      "se saltasen" enemigos entre frames. Ahora Projectile almacena prev_x/y
+      y check_collision_grid usa clipline() para detectar cualquier enemigo
+      en la trayectoria completa del frame.
+
+    MIRA INFRARROJA:
+      Cuando es el arma activa, se dibuja una línea láser roja delgada
+      mostrando la trayectoria exacta del próximo disparo. Sin allocations
+      por frame (pygame.draw.line directo sobre screen).
     """
     def __init__(self, owner):
         super().__init__(owner, cooldown=100, damage=110, kickback=14.0, shake=9.0, spread=0.0)
-        self.shoot_sound = load_sound("pistol_fire.wav")   # reutiliza hasta tener audio propio
-        self._muzzle_flash = 0   # frames de destello de cañón
+        self.shoot_sound = load_sound("pistol_fire.wav")
+        self._muzzle_flash = 0
 
     def update(self, dt=1.0):
         super().update(dt)
@@ -273,7 +284,7 @@ class SniperWeapon(Weapon):
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
 
-        angle = owner.angle   # sin dispersión — arma de precisión
+        angle = owner.angle
         px = owner.x + math.cos(angle) * 28
         py = owner.y + math.sin(angle) * 28
 
@@ -292,31 +303,59 @@ class SniperWeapon(Weapon):
         return True
 
     def render(self, screen, camera):
-        """Destello de cañón y línea de trayectoria fantasma al disparar."""
+        """
+        Mira infrarroja (siempre visible cuando es arma activa)
+        + Destello de cañón y línea de trayectoria al disparar.
+        """
+        owner = self.owner
+
+        # ── Detectar si es el arma activa ────────────────────────────
+        try:
+            is_active = owner.weapons[owner.current_weapon_index] is self
+        except (IndexError, AttributeError):
+            is_active = False
+
+        angle  = owner.angle
+        sp     = camera.apply_coords(owner.x, owner.y)
+        sx, sy = int(sp[0]), int(sp[1])
+
+        # ── MIRA INFRARROJA ──────────────────────────────────────────
+        # Dibuja un rayo láser rojo que muestra la trayectoria exacta.
+        # Usa pygame.draw.line directo (sin Surface temporal = sin overhead).
+        if is_active:
+            scope_len = 950
+            ex = int(sx + math.cos(angle) * scope_len)
+            ey = int(sy + math.sin(angle) * scope_len)
+
+            # Capa exterior: glow ancho y oscuro (crea sensación de profundidad)
+            pygame.draw.line(screen, (100, 0, 0),   (sx, sy), (ex, ey), 3)
+            # Capa media
+            pygame.draw.line(screen, (200, 15, 15), (sx, sy), (ex, ey), 2)
+            # Rayo central brillante
+            pygame.draw.line(screen, (255, 40, 40), (sx, sy), (ex, ey), 1)
+
+            # Punto de impacto: anillo exterior + núcleo
+            pygame.draw.circle(screen, (180, 0, 0),   (ex, ey), 6, 1)
+            pygame.draw.circle(screen, (255, 80, 80), (ex, ey), 3)
+            pygame.draw.circle(screen, (255, 200, 200), (ex, ey), 1)
+
+        # ── DESTELLO DE CAÑÓN (solo al disparar) ─────────────────────
         if self._muzzle_flash <= 0:
             return
-        owner  = self.owner
-        angle  = owner.angle
-        sx, sy = camera.apply_coords(owner.x, owner.y)
-        prog   = self._muzzle_flash / 8.0
 
-        # Línea de trayectoria (trazo fantasma)
-        end_x = sx + math.cos(angle) * 500 * prog
-        end_y = sy + math.sin(angle) * 500 * prog
-        alpha  = int(prog * 180)
-        line_surf = pygame.Surface(
-            (int(abs(end_x - sx)) + 4, int(abs(end_y - sy)) + 4),
-            pygame.SRCALPHA
-        )
-        pygame.draw.line(screen, (255, 30, 180, alpha),
-                         (int(sx), int(sy)), (int(end_x), int(end_y)), 2)
+        prog = self._muzzle_flash / 8.0
+
+        # Línea de trayectoria (trazo fucsia fantasma, se desvanece)
+        end_x = int(sx + math.cos(angle) * 500 * prog)
+        end_y = int(sy + math.sin(angle) * 500 * prog)
+        pygame.draw.line(screen, (255, 30, 180), (sx, sy), (end_x, end_y), 2)
 
         # Flash blanco en boca de cañón
         flash_r = int(14 * prog)
         if flash_r > 1:
-            cx = int(sx + math.cos(angle) * 28)
-            cy = int(sy + math.sin(angle) * 28)
+            muz_x = int(sx + math.cos(angle) * 28)
+            muz_y = int(sy + math.sin(angle) * 28)
             fs = pygame.Surface((flash_r * 2, flash_r * 2), pygame.SRCALPHA)
             pygame.draw.circle(fs, (255, 220, 255, int(prog * 220)),
                                (flash_r, flash_r), flash_r)
-            screen.blit(fs, (cx - flash_r, cy - flash_r))
+            screen.blit(fs, (muz_x - flash_r, muz_y - flash_r))

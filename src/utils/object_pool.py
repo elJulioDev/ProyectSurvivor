@@ -18,7 +18,10 @@ Resultado:
   - El pool de 1500 slots contiene SOLO partículas en movimiento activo
   - Permite restaurar conteos visuales completos sin saturar el pool
 
-_alive_count: evita iterar los 1500 slots cuando el pool está vacío.
+MEJORAS v2:
+  - ProjectilePool.get(): inicializa prev_x/prev_y al reciclar un proyectil.
+    Necesario para la detección swept de colisiones en Projectile.
+  - _alive_count: evita iterar los 1500 slots cuando el pool está vacío.
 """
 import pygame
 import math
@@ -46,6 +49,10 @@ class ProjectilePool:
         p = self.pool.pop() if self.pool else Projectile(0, 0, 0)
         p.x          = x
         p.y          = y
+        # Inicializar posición previa = posición actual al reutilizar
+        # (evita colisión swept falsa desde la posición del disparo anterior)
+        p.prev_x     = x
+        p.prev_y     = y
         p.angle      = angle
         p.speed      = speed
         p.damage     = damage
@@ -104,15 +111,11 @@ class ParticlePool:
             p.is_alive = False
         self.next_index = 0
 
-        # Contador de activas — permite skip completo cuando pool vacío
         self._alive_count = 0
 
-        # Listas de blit reutilizables (evita allocations por frame)
         self._blit_floor: list = []
         self._blit_air:   list = []
 
-        # bake_interval mantenido por compatibilidad, pero update_and_bake
-        # ya no lo usa — hornea inmediatamente en cada llamada.
         self._bake_interval = 1
         self._bake_counter  = 0
 
@@ -121,7 +124,7 @@ class ParticlePool:
 
     def _generate_surface_cache(self):
         colors = [BLOOD_RED, DARK_BLOOD, GUTS_PINK, BRIGHT_RED]
-        sizes  = [2, 3, 4, 6, 8, 12, 16, 20, 24]  # Extendido para charcos grandes
+        sizes  = [2, 3, 4, 6, 8, 12, 16, 20, 24]
         alphas = [100, 180, 255]
         for color in colors:
             for size in sizes:
@@ -148,7 +151,6 @@ class ParticlePool:
             gravity=0, friction=0.9, is_chunk=False, is_liquid=True):
         slot = self.pool[self.next_index]
 
-        # Si sobreescribimos una partícula viva, restamos del contador
         if slot.is_alive:
             self._alive_count -= 1
 
@@ -172,25 +174,8 @@ class ParticlePool:
         self._alive_count += 1
         return slot
 
-    # ──────────────────────────────────────────────────────────────────
     # MÉTODO PRINCIPAL: update + baking en un solo pass
-    # ──────────────────────────────────────────────────────────────────
     def update_and_bake(self, dt, blood_surface=None):
-        """
-        Actualiza todas las partículas vivas Y hornea instantáneamente
-        las estáticas al blood_surface permanente, en UN SOLO PASS.
-
-        Ventajas vs update_all() + bake_static_blood() separados:
-          - Itera el pool UNA VEZ en lugar de dos.
-          - Las partículas estáticas se liberan en el mismo frame en que
-            se detienen, maximizando slots disponibles para nuevas.
-          - blood_surface acumula toda la sangre permanente sin overhead.
-
-        Reglas de baking:
-          - Solo partículas líquidas (is_liquid=True) con vel≈0 y no-chunk.
-          - Los chunks (is_chunk=True) NUNCA se hornean: persisten como
-            decals volantes hasta que su lifetime expire.
-        """
         if self._alive_count <= 0:
             self._alive_count = 0
             return
@@ -206,7 +191,6 @@ class ParticlePool:
                 freed += 1
                 continue
 
-            # Baking inmediato: partícula líquida detenida → pintar y liberar
             if (blood_surface is not None and
                     p.is_liquid and not p.is_chunk and
                     abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1):
@@ -241,11 +225,6 @@ class ParticlePool:
             self._alive_count = 0
 
     def render_all(self, screen, camera, layer='all'):
-        """
-        layer = 'floor'  → solo partículas estáticas (rara vez usadas con baking activo)
-        layer = 'air'    → solo partículas en movimiento
-        layer = 'all'    → ambas
-        """
         if self._alive_count <= 0:
             return 0
 
@@ -312,12 +291,6 @@ class ParticlePool:
             return len(blit_floor) + len(blit_air)
 
     def bake_static_blood(self, target_surface):
-        """
-        Stub de compatibilidad.
-        Con update_and_bake() activo, el baking ocurre en ese mismo pass
-        y este método es redundante. Se mantiene por si level_manager
-        lo llama directamente.
-        """
         return False
 
     def clear(self):

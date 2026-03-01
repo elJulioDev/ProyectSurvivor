@@ -1,3 +1,15 @@
+"""
+Sistema de partículas gore.
+
+NIVELES DE CALIDAD:
+  0 = CRISIS   → Solo efectos mínimos. Blood splatter: saltado completamente.
+                  Viscera: 2 mist, 0 chunks, sin charco.
+                  Activo cuando hay >400 enemigos visibles O >700 partículas activas.
+  1 = MEDIO    → Efectos reducidos. Splatter: count/2. Viscera: 8 mist, 2 chunks.
+  2 = ALTO     → Efectos completos (comportamiento original).
+
+El nivel se controla externamente por LevelManager._update_lod().
+"""
 import pygame
 import random
 import math
@@ -41,7 +53,6 @@ class Particle:
         self.x += self.vel_x * dt
         self.y += self.vel_y * dt
 
-        # OPTIMIZACIÓN: comparación de cuadrados, sin math.sqrt
         speed_sq = self.vel_x * self.vel_x + self.vel_y * self.vel_y
         if self.is_liquid and speed_sq < 0.01 and not self.is_chunk:
             self.vel_x = 0
@@ -59,7 +70,7 @@ class ParticleSystem:
         self.pool = None
         self.max_active_particles = 1500
         self.particle_count = 0
-        self.quality = 2  # 0=Low, 1=Mid, 2=High
+        self.quality = 2  # 0=Crisis, 1=Mid, 2=High
 
     def set_pool(self, particle_pool):
         self.pool = particle_pool
@@ -69,17 +80,19 @@ class ParticleSystem:
 
     def create_blood_splatter(self, x, y, direction_vector=None, force=1.2, count=6):
         """
-        Sangrado direccional (Impactos de bala).
-        RESTAURADO: 3x en quality 2 = 18 partículas por impacto.
-        El rendimiento se mantiene porque las partículas que se detienen
-        se hornean instantáneamente al blood_surface en update_and_bake().
+        Sangrado direccional (impactos de bala).
+        · quality 0 (CRISIS): saltado completamente — el impacto más frecuente.
+        · quality 1:  count // 2 partículas.
+        · quality 2:  count * 3 partículas (comportamiento original).
         """
+        # CRISIS: skip total — impacto más frecuente, ahorra más CPU
+        if self.quality == 0:
+            return
+
         if self.quality == 2:
-            actual_count = count * 3   # RESTAURADO: 18 partículas por impacto
-        elif self.quality == 1:
-            actual_count = count
+            actual_count = count * 3
         else:
-            actual_count = 2
+            actual_count = max(1, count // 2)
 
         for _ in range(actual_count):
             if direction_vector:
@@ -98,7 +111,7 @@ class ParticleSystem:
             self.pool.get(
                 x, y, color,
                 size=size,
-                lifetime=random.randint(40, 80),   # RESTAURADO
+                lifetime=random.randint(40, 80),
                 velocity=velocity,
                 gravity=0,
                 friction=0.84,
@@ -106,10 +119,7 @@ class ParticleSystem:
             )
 
     def create_blood_drip(self, x, y, intensity=1.0):
-        """
-        Goteo dinámico de sangre.
-        vel=(0,0) → se hornea al primer frame → costo de pool casi nulo.
-        """
+        """Goteo dinámico — saltado en CRISIS."""
         if self.quality == 0:
             return
 
@@ -139,16 +149,16 @@ class ParticleSystem:
     def create_blood_pool(self, x, y):
         """
         Charco grande irregular.
-        RESTAURADO a conteos máximos.
-        Los blobs con vel=(0,0) se hornean al primer frame → pool liberado inmediatamente.
-        Resultado: charcos grandes permanentes sin costo sostenido en el pool.
+        · quality 0: 1 blob pequeño (mínimo visual para marcar la muerte).
+        · quality 1: 2-3 blobs.
+        · quality 2: 4-8 blobs (original).
         """
         if self.quality == 2:
-            blobs = random.randint(4, 8)   # RESTAURADO + mejorado
+            blobs = random.randint(4, 8)
         elif self.quality == 1:
-            blobs = random.randint(2, 4)
+            blobs = random.randint(2, 3)
         else:
-            blobs = 1
+            blobs = 1   # CRISIS: solo un rastro mínimo
 
         for _ in range(blobs):
             offset_dist = random.uniform(0, 18) if blobs > 1 else 0
@@ -156,13 +166,13 @@ class ParticleSystem:
             px = x + math.cos(offset_angle) * offset_dist
             py = y + math.sin(offset_angle) * offset_dist
 
-            size = random.randint(10, 24)   # RESTAURADO: charcos grandes
+            size = random.randint(10, 24) if self.quality == 2 else random.randint(6, 12)
 
             self.pool.get(
                 px, py,
                 DARK_BLOOD,
                 size=size,
-                lifetime=random.randint(60, 120),   # Corto: baked en 1er frame
+                lifetime=random.randint(60, 120),
                 velocity=(0, 0),
                 gravity=0,
                 friction=0,
@@ -172,27 +182,34 @@ class ParticleSystem:
     def create_viscera_explosion(self, x, y):
         """
         Muerte gore: Niebla roja + Trozos de carne + Charco.
-        RESTAURADO a conteos máximos.
-        Niebla/charcos (estáticos) se hornean inmediatamente.
-        Solo los chunks (is_chunk=True) persisten como partículas dinámicas.
+
+        · quality 0 (CRISIS): 2 mist, 0 chunks, sin charco.
+          Minimiza el impacto por frame en kills masivos (dash ninja, oleadas).
+        · quality 1: 6 mist, 2 chunks, con charco pequeño.
+        · quality 2: 22 mist, 9 chunks, charco grande (original).
+
+        El throttle externo en LevelManager._on_enemy_killed() decide
+        si llamar esta función o un efecto más ligero basándose en
+        cuántos enemigos han muerto este frame.
         """
         if self.quality == 2:
-            mist_count = 22    # RESTAURADO (levemente menos que 25 original)
-            chunk_count = 9    # RESTAURADO (levemente menos que 10 original)
+            mist_count = 22
+            chunk_count = 9
             pool_spawn = True
         elif self.quality == 1:
-            mist_count = 10
-            chunk_count = 4
+            mist_count = 6
+            chunk_count = 2
             pool_spawn = True
         else:
-            mist_count = 4
+            # CRISIS: mínimo que sigue siendo visualmente satisfactorio
+            mist_count = 2
             chunk_count = 0
             pool_spawn = False
 
         if pool_spawn:
             self.create_blood_pool(x, y)
 
-        # Niebla de sangre (partículas rápidas que se detienen → se hornean)
+        # Niebla de sangre
         for _ in range(mist_count):
             angle = random.uniform(0, math.pi * 2)
             speed = random.uniform(3, 10)
@@ -201,24 +218,24 @@ class ParticleSystem:
 
             self.pool.get(
                 x, y, color,
-                size=random.randint(3, 6),     # RESTAURADO
+                size=random.randint(3, 6),
                 lifetime=random.randint(20, 45),
                 velocity=velocity,
                 gravity=0,
                 friction=0.89
             )
 
-        # Trozos de carne (is_chunk=True → NO se hornean, persisten y rebotan)
+        # Trozos de carne (is_chunk → NO se hornean, persisten)
         for _ in range(chunk_count):
             angle = random.uniform(0, math.pi * 2)
-            speed = random.uniform(5, 12)     # RESTAURADO
+            speed = random.uniform(5, 12)
             velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
             color = random.choice([DARK_BLOOD, GUTS_PINK])
 
             self.pool.get(
                 x, y, color,
-                size=random.randint(4, 9),     # RESTAURADO
-                lifetime=random.randint(100, 300),  # Chunks persisten como decals
+                size=random.randint(4, 9),
+                lifetime=random.randint(100, 300),
                 velocity=velocity,
                 gravity=0,
                 friction=0.91,

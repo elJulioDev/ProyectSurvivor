@@ -1,21 +1,34 @@
 """
-LevelManager con sistema de partículas GORE COMPLETO restaurado.
+LevelManager con sistema de partículas GORE optimizado para alto rendimiento.
 
-NUEVAS MECÁNICAS:
+MEJORAS DE RENDIMIENTO v2:
 ────────────────────────────────────────────────────────────────
-1. AURA DE ESPINAS (_update_aura):
-   - Daña a todos los enemigos dentro de player.aura_radius cada frame.
-   - DPS escalado por dt (frame-rate independent).
-   - Renderizada como círculo pulsante fucsia/violeta alrededor del jugador.
-   - Se activa cuando player.aura_damage > 0.
 
-2. DASH NINJA (_check_ninja_dash):
-   - Activo cuando player.ninja_dash = True y player.dash_active = True.
-   - Mata instantáneamente a cualquier enemigo dentro del radio de colisión
-     durante la duración del dash.
-   - Genera explosión de vísceras en cada kill.
-   - Los kills otorgan puntos, XP y activan lifesteal normalmente.
-   - Radio de kill: player.size * 2.8 px (hitbox generosa, no puntual).
+1. LOD MEJORADO (_update_lod):
+   - Ahora considera TANTO enemigos visibles COMO partículas activas.
+   - Umbrales más agresivos: quality=0 se activa con >350 enemigos O >600 partículas.
+   - Se llama al INICIO de update() para que afecte a todos los sistemas ese mismo frame.
+
+2. THROTTLE DE PARTÍCULAS POR FRAME (_kills_this_frame):
+   - Contador que se resetea cada frame en update().
+   - _on_enemy_killed() lo usa para degradar el efecto visual según cuántos
+     enemigos han muerto en el frame actual:
+       kills 1–6  → create_viscera_explosion() (efecto completo)
+       kills 7–16 → create_blood_pool() (solo charco, sin chunks)
+       kills >16  → sin partículas (solo gemas + score)
+   - Resuelve el pico de rendimiento al hacer ninja dash sobre cientos de
+     enemigos apilados (antes: cientos × 32 partículas/frame).
+
+3. FIX DOUBLE VISCERA en _check_ninja_dash:
+   - Antes se llamaba _on_enemy_killed() (crea viscera) Y ADEMÁS
+     create_viscera_explosion() manualmente → doble explosión por kill.
+   - Ahora _on_enemy_killed() es la única fuente de efectos visuales.
+   - _check_ninja_dash solo agrega shake proporcional al total de kills.
+
+MECÁNICAS EXISTENTES (sin cambios):
+────────────────────────────────────────────────────────────────
+1. AURA DE ESPINAS (_update_aura): DPS en área, visual pulsante.
+2. DASH NINJA (_check_ninja_dash): Kill instantáneo al atravesar enemigos.
 """
 import pygame
 import math
@@ -41,6 +54,11 @@ SCORE_MULTIPLIER        = 100
 MAX_ENEMY_PROJECTILES   = 35
 
 GEM_UPDATE_RADIUS_SQ = 2000 ** 2
+
+# Throttle de partículas por frame: tras N kills, degrada el efecto
+_PARTICLE_FULL_KILLS  = 6    # kills 1..6   → viscera completa
+_PARTICLE_POOL_KILLS  = 16   # kills 7..16  → solo charco
+# > 16 kills/frame → sin partículas (solo score + gemas)
 
 
 class LevelManager:
@@ -76,8 +94,10 @@ class LevelManager:
         self._active_enemies_buf: list = []
 
         # Ninja dash: set de enemigos ya golpeados en el dash actual
-        # (evita matar el mismo enemigo varias veces por frame)
         self._ninja_dash_hit_set: set = set()
+
+        # Throttle de partículas: contador de kills este frame
+        self._kills_this_frame: int = 0
 
     def initialize(self):
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
@@ -99,6 +119,7 @@ class LevelManager:
         self._teleport_timer      = 0
         self._explosion_flash     = 0
         self._ninja_dash_hit_set.clear()
+        self._kills_this_frame    = 0
         self.camera.snap_to(self.player)
 
     def set_target_fps(self, fps: int):
@@ -107,19 +128,41 @@ class LevelManager:
         self._ai_base_interval = max(1, int(4 * scale))
         self.particle_pool._bake_interval = 1
 
+    # ──────────────────────────────────────────────────────────────────
+    # LOD MEJORADO
+    # ──────────────────────────────────────────────────────────────────
+    def _update_lod(self):
+        """
+        Ajusta la calidad de partículas según la carga actual de la escena.
+
+        Considera TANTO enemigos visibles (del frame anterior) COMO
+        partículas activas en el pool para anticipar cuellos de botella.
+
+        Umbrales calibrados para 60fps estable en escenas de alta densidad:
+          CRISIS (0): >350 enemigos  O  >600 partículas activas
+          MEDIO  (1): >180 enemigos  O  >350 partículas activas
+          ALTO   (2): resto
+        """
+        visible    = self.enemies_rendered
+        particles  = self.particle_pool._alive_count
+
+        if visible > 350 or particles > 600:
+            self.particle_system.set_quality(0)
+        elif visible > 180 or particles > 350:
+            self.particle_system.set_quality(1)
+        else:
+            self.particle_system.set_quality(2)
+
     def update(self, dt, keys, mouse_pos, mouse_pressed, mobile=None):
         if self.game_over or not self.player or not self.player.is_alive:
             self.game_over = True
             return
 
-        # LOD por enemigos visibles
-        visible = self.enemies_rendered
-        if visible < 200:
-            self.particle_system.set_quality(2)
-        elif visible < 400:
-            self.particle_system.set_quality(1)
-        else:
-            self.particle_system.set_quality(0)
+        # ── LOD basado en frame anterior (enemies_rendered + particles) ──
+        self._update_lod()
+
+        # ── Resetear throttle de partículas para este frame ──────────
+        self._kills_this_frame = 0
 
         use_mobile = mobile is not None and mobile.enabled
 
@@ -157,7 +200,7 @@ class LevelManager:
         self._update_projectiles(dt)
         self._update_enemy_projectiles(dt)
 
-        # NUEVAS MECÁNICAS
+        # Mecánicas especiales
         self._update_aura(dt)
         self._check_ninja_dash()
 
@@ -182,7 +225,6 @@ class LevelManager:
         if self._explosion_flash > 0:
             self._explosion_flash -= dt
 
-        # Limpiar el set ninja dash al terminar el frame si el dash ya acabó
         if not self.player.dash_active:
             self._ninja_dash_hit_set.clear()
 
@@ -192,10 +234,6 @@ class LevelManager:
     # AURA DE ESPINAS
     # ──────────────────────────────────────────────────────────────────
     def _update_aura(self, dt):
-        """
-        Inflige daño continuo a todos los enemigos dentro de aura_radius.
-        DPS escalado correctamente con dt (frame-rate independent).
-        """
         player = self.player
         aura_dmg = getattr(player, 'aura_damage', 0.0)
         if aura_dmg <= 0:
@@ -204,7 +242,7 @@ class LevelManager:
         aura_radius    = getattr(player, 'aura_radius', 80.0)
         radius_sq      = aura_radius * aura_radius
         px, py         = player.x, player.y
-        dmg_per_frame  = aura_dmg * dt / 60.0   # DPS → daño por frame
+        dmg_per_frame  = aura_dmg * dt / 60.0
 
         for enemy in self.enemies:
             if not enemy.is_alive:
@@ -212,7 +250,6 @@ class LevelManager:
             dx = enemy.x - px
             dy = enemy.y - py
             if dx * dx + dy * dy <= radius_sq:
-                # Pequeñas partículas de chispa para feedback visual
                 if self.frame_counter % 8 == 0 and self.particle_system.quality > 0:
                     self.particle_system.create_blood_splatter(
                         enemy.x, enemy.y, force=0.4, count=1
@@ -225,13 +262,14 @@ class LevelManager:
     # ──────────────────────────────────────────────────────────────────
     def _check_ninja_dash(self):
         """
-        Si el jugador tiene ninja_dash activo y está en medio de un dash,
-        mata instantáneamente a cualquier enemigo dentro del radio de colisión.
+        Mata instantáneamente a enemigos en el radio del dash ninja.
 
-        · Radio de kill: player.size * 2.8  (hitbox generosa)
-        · Usa _ninja_dash_hit_set para no matar el mismo enemigo dos veces
-          durante el mismo dash.
-        · Los kills otorgan puntos, XP, lifesteal y explosión de vísceras.
+        FIX: Ya no llama create_viscera_explosion() directamente.
+        _on_enemy_killed() gestiona los efectos visuales con throttle
+        automático basado en _kills_this_frame.
+
+        El shake de cámara ahora es proporcional al total de kills del dash
+        en lugar de per-kill (evita spike de shake con 200+ kills).
         """
         player = self.player
         if not getattr(player, 'ninja_dash', False):
@@ -242,6 +280,7 @@ class LevelManager:
         px, py      = player.x, player.y
         kill_radius = player.size * 2.8
         kill_r_sq   = kill_radius * kill_radius
+        ninja_kills = 0
 
         for enemy in self.enemies:
             if not enemy.is_alive:
@@ -254,10 +293,13 @@ class LevelManager:
                 self._ninja_dash_hit_set.add(id(enemy))
                 enemy.is_alive = False
                 self._on_enemy_killed(enemy)
-                # Partículas extra para el kill ninja
-                self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
-                # Pequeño destello de cámara por cada kill
-                self.camera.add_shake(3)
+                ninja_kills += 1
+
+        # Shake proporcional al total de kills del dash este frame
+        # (evita spike de shake si hay 200+ kills simultáneos)
+        if ninja_kills > 0:
+            shake_amt = min(14.0, 2.0 + ninja_kills * 0.3)
+            self.camera.add_shake(shake_amt)
 
     def _update_gems(self, dt):
         player_pos = self.player.get_position()
@@ -429,8 +471,34 @@ class LevelManager:
         self.enemy_projectiles = alive
 
     def _on_enemy_killed(self, enemy):
+        """
+        Gestiona score, XP, lifesteal y efectos visuales al matar un enemigo.
+
+        THROTTLE DE PARTÍCULAS:
+        Usa _kills_this_frame para degradar automáticamente el efecto visual
+        cuando muchos enemigos mueren en el mismo frame (p.ej. dash ninja
+        o ráfaga de escopeta sobre una horda compacta):
+
+          kills 1–6  → create_viscera_explosion() (calidad actual)
+          kills 7–16 → create_blood_pool()         (solo charco, sin chunks)
+          kills >16  → sin partículas              (score + gemas únicamente)
+
+        Esto garantiza que un dash sobre 200 enemigos no genere 200×32
+        partículas en un solo frame.
+        """
         self.score += enemy.points * SCORE_MULTIPLIER
-        self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
+        self._kills_this_frame += 1
+
+        k  = self._kills_this_frame
+        ps = self.particle_system
+
+        if k <= _PARTICLE_FULL_KILLS:
+            ps.create_viscera_explosion(enemy.x, enemy.y)
+        elif k <= _PARTICLE_POOL_KILLS:
+            # Efecto ligero: solo marca la posición con un charco pequeño
+            ps.create_blood_pool(enemy.x, enemy.y)
+        # > _PARTICLE_POOL_KILLS kills/frame: sin partículas (score + gemas)
+
         self.gems.append(ExperienceGem(enemy.x, enemy.y, enemy.points))
 
         if random.random() < getattr(self.player, 'lifesteal_chance', 0.0):
@@ -523,7 +591,7 @@ class LevelManager:
                 enemy.render(screen, cam)
                 self.enemies_rendered += 1
 
-        # Aura visual — se dibuja ANTES del jugador para que quede debajo
+        # Aura visual — antes del jugador
         if self.player:
             self._render_aura(screen)
 
@@ -543,12 +611,10 @@ class LevelManager:
             flash.fill((255, 60, 0, min(80, alpha)))
             screen.blit(flash, (0, 0))
 
-        # Indicador visual del Dash Ninja cuando está activo
         if self.player and self.player.ninja_dash and self.player.dash_active:
             self._render_ninja_dash_effect(screen)
 
     def _render_aura(self, screen):
-        """Renderiza el Aura de Espinas como un círculo pulsante violeta/fucsia."""
         player = self.player
         aura_dmg = getattr(player, 'aura_damage', 0.0)
         if aura_dmg <= 0:
@@ -558,26 +624,22 @@ class LevelManager:
         sp = self.camera.apply_coords(player.x, player.y)
         cx, cy = int(sp[0]), int(sp[1])
 
-        # Pulso: dos ondas desfasadas
         t = self.frame_counter * 0.05
         pulse_a = (math.sin(t) + 1.0) * 0.5
         pulse_b = (math.sin(t + math.pi) + 1.0) * 0.5
 
-        # Relleno semitransparente interior
         fill_alpha = int(18 + pulse_a * 14)
         fill_surf = pygame.Surface((aura_radius * 2, aura_radius * 2), pygame.SRCALPHA)
         pygame.draw.circle(fill_surf, (180, 30, 255, fill_alpha),
                            (aura_radius, aura_radius), aura_radius)
         screen.blit(fill_surf, (cx - aura_radius, cy - aura_radius))
 
-        # Aro exterior (pulsa más fuerte)
         ring_alpha = int(90 + pulse_b * 80)
         ring_surf = pygame.Surface((aura_radius * 2, aura_radius * 2), pygame.SRCALPHA)
         pygame.draw.circle(ring_surf, (220, 60, 255, ring_alpha),
                            (aura_radius, aura_radius), aura_radius, 2)
         screen.blit(ring_surf, (cx - aura_radius, cy - aura_radius))
 
-        # Segunda onda expandida (eco del aura)
         echo_r = int(aura_radius * (1.0 + pulse_a * 0.15))
         echo_alpha = int(40 * (1.0 - pulse_a))
         if echo_r > 0 and echo_alpha > 4:
@@ -587,7 +649,6 @@ class LevelManager:
             screen.blit(echo_surf, (cx - echo_r, cy - echo_r))
 
     def _render_ninja_dash_effect(self, screen):
-        """Efecto visual de estela oscura durante el Dash Ninja."""
         player = self.player
         sp = self.camera.apply_coords(player.x, player.y)
         cx, cy = int(sp[0]), int(sp[1])
@@ -632,6 +693,8 @@ class LevelManager:
             'particles_rendered': self.particles_rendered,
             'particles_capacity': self.particle_pool.capacity,
             'gems_count':         len(self.gems),
+            'particle_quality':   self.particle_system.quality,
+            'kills_this_frame':   self._kills_this_frame,
         }
 
     def cleanup(self):

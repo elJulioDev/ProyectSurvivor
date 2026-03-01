@@ -1,5 +1,13 @@
 """
 Módulo de proyectiles — jugador + enemigos
+
+MEJORAS v2:
+  - Colisión SWEPT (barrido de línea) para proyectiles de alta velocidad.
+    Antes, balas muy rápidas (Francotirador 38px/frame × speed_mult) podían
+    "teletransportarse" a través del hitbox de un enemigo entre frames.
+    Ahora se almacena prev_x/prev_y y se usa rect.clipline() para detectar
+    cualquier enemigo que quede en la trayectoria del disparo.
+  - grid_radius=2 automático cuando speed > 20px/frame (cubre mayor área de búsqueda).
 """
 import pygame
 import math
@@ -10,7 +18,8 @@ class Projectile:
     __slots__ = (
         'x', 'y', 'angle', 'speed', 'size', 'color', 'damage',
         'penetration', 'lifetime', 'is_alive', 'image_type',
-        'hit_enemies', 'vel_x', 'vel_y', 'rect', 'hitbox_size'
+        'hit_enemies', 'vel_x', 'vel_y', 'rect', 'hitbox_size',
+        'prev_x', 'prev_y',          # posición anterior para colisión swept
     )
 
     def __init__(self, x, y, angle, speed=10, damage=25, penetration=1,
@@ -31,6 +40,9 @@ class Projectile:
         self.vel_x = math.cos(angle) * speed
         self.vel_y = math.sin(angle) * speed
 
+        self.prev_x = x
+        self.prev_y = y
+
         self.rect = pygame.Rect(
             int(self.x - self.hitbox_size // 2),
             int(self.y - self.hitbox_size // 2),
@@ -41,6 +53,10 @@ class Projectile:
     def update(self, dt=1.0):
         if not self.is_alive:
             return
+
+        # Guardar posición previa ANTES de mover (para colisión swept)
+        self.prev_x = self.x
+        self.prev_y = self.y
 
         self.x += self.vel_x * dt
         self.y += self.vel_y * dt
@@ -57,19 +73,50 @@ class Projectile:
             self.is_alive = False
 
     def check_collision_grid(self, spatial_grid):
+        """
+        Colisión con detección swept (barrido de línea).
+
+        Para proyectiles lentos (<= 20px/frame) usa colisión de rect normal.
+        Para proyectiles rápidos (> 20px/frame, p.ej. Francotirador 38px+):
+          · Amplía el radio de búsqueda en la grid a 2 celdas.
+          · Usa rect.clipline(prev_pos → current_pos) para detectar
+            cualquier enemigo que haya quedado en la trayectoria aunque
+            el proyectil lo haya "traspasado" entre frames.
+
+        Esto resuelve el bug donde balas supersónicas con mejoras de
+        velocidad apiladas no registraban impactos.
+        """
         if not self.is_alive:
             return None
 
-        nearby_enemies = spatial_grid.get_nearby(self.x, self.y, radius=1)
+        # Proyectiles rápidos necesitan radio mayor y swept check
+        speed_sq = self.vel_x * self.vel_x + self.vel_y * self.vel_y
+        is_fast  = speed_sq > 400.0   # > ~20 px/frame
+        grid_radius = 2 if is_fast else 1
+
+        nearby_enemies = spatial_grid.get_nearby(self.x, self.y, radius=grid_radius)
 
         for enemy in nearby_enemies:
-            if enemy.is_alive and enemy not in self.hit_enemies:
-                if self.rect.colliderect(enemy.rect):
-                    self.hit_enemies.append(enemy)
-                    self.penetration -= 1
-                    if self.penetration <= 0:
-                        self.is_alive = False
-                    return enemy
+            if not enemy.is_alive or enemy in self.hit_enemies:
+                continue
+
+            # 1) Colisión rect estándar (balas lentas / posición actual)
+            hit = self.rect.colliderect(enemy.rect)
+
+            # 2) Colisión swept: ¿la trayectoria prev→current atraviesa el hitbox?
+            if not hit and is_fast:
+                hit = bool(enemy.rect.clipline(
+                    self.prev_x, self.prev_y,
+                    self.x,      self.y
+                ))
+
+            if hit:
+                self.hit_enemies.append(enemy)
+                self.penetration -= 1
+                if self.penetration <= 0:
+                    self.is_alive = False
+                return enemy
+
         return None
 
     def render(self, screen, camera):
@@ -164,7 +211,6 @@ class EnemyProjectile:
         cy = int(screen_pos[1])
 
         if self.proj_type == 'acid':
-            # Círculo verde pulsante
             progress = max(0.0, self.lifetime / 175)
             alpha_val = int(200 * progress + 55)
             r = self.radius
@@ -179,7 +225,6 @@ class EnemyProjectile:
 
         elif self.proj_type == 'rock':
             r = self.radius
-            # Cuadrado rotado (roca)
             angle_deg = (self.lifetime * 6) % 360
             rock_surf = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
             pygame.draw.rect(rock_surf, self.color,
