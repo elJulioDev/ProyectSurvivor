@@ -1,18 +1,31 @@
 """
-LevelManager optimizado:
-- Intervalo de AI escala con target_fps (correcto a 60, 120, 240 fps).
-- bake_static_blood() delegado al pool (se auto-rate-limita).
-- render_world() hace una sola pasada de partículas (floor+air en dos blits pero
-  el cálculo se hace en una iteración interna del pool).
-- Gems: solo actualiza las que están dentro de 2× la distancia de magnetismo.
-- _update_enemies: usa referencia local a player pos y avoid redundant lookups.
-- active_enemies re-usa la lista en lugar de crear nueva cada frame.
+LevelManager con sistema de partículas GORE COMPLETO restaurado.
 
-OPTIMIZACIONES v2 (fix de 50fps al matar):
-- hit_particle_cooldown: era 1 en quality 2 (casi cada frame) → ahora 3.
-  Esto elimina el pico de CPU cuando se dispara continuamente.
-- create_blood_splatter count reducido de 6 a 4 (junto con la reducción 2x
-  de particle.py = 8 partículas en lugar de 18 por hit en quality 2).
+CAMBIOS v3 (restauración visual + optimización real):
+────────────────────────────────────────────────────────────────
+PROBLEMA v2: Se redujeron conteos visuales (2x splatter, cooldown=3, 14 mist...)
+  → El juego perdió su identidad frenética y sangrienta.
+
+SOLUCIÓN v3: Optimización correcta basada en el CICLO DE VIDA del pool:
+
+1. update_and_bake(dt, blood_surface) — un solo pass que:
+   · Actualiza partículas dinámicas (splatter en vuelo, chunks, mist)
+   · Hornea INMEDIATAMENTE partículas estáticas (charcos, sangre detenida)
+     al blood_surface permanente y libera sus slots del pool
+   · Resultado: el pool de 1500 slots contiene SOLO partículas activas
+
+2. Conteos RESTAURADOS completamente:
+   · hit_particle_cooldown = 1 (cada impacto genera sangre)
+   · create_blood_splatter count = 6 (x3 en quality 2 = 18 partículas)
+   · viscera: mist=22, chunks=9, pool=4-8 blobs
+
+3. Por qué funciona sin caída de FPS:
+   · Charcos/drips (vel=0): 1 frame en pool → baked → slot libre
+   · Splatter en vuelo: ~15-40 frames activos → se detienen → baked
+   · Solo los CHUNKS (is_chunk=True) permanecen como decals dinámicos
+   · Pool 1500 con baking inmediato ≈ nunca se satura en combate normal
+
+Eficiencia de intervalos de AI escala con target_fps.
 """
 import pygame
 import math
@@ -37,14 +50,13 @@ ENEMY_TELEPORT_INTERVAL = 90
 SCORE_MULTIPLIER        = 100
 MAX_ENEMY_PROJECTILES   = 35
 
-# Para gems: solo procesar las que están en rango extendido
-GEM_UPDATE_RADIUS_SQ = 2000 ** 2   # 2000px
+GEM_UPDATE_RADIUS_SQ = 2000 ** 2
 
 
 class LevelManager:
     def __init__(self):
         self.projectile_pool  = ProjectilePool(initial_size=500)
-        self.particle_pool    = ParticlePool(capacity=800)
+        self.particle_pool    = ParticlePool(capacity=1500)   # AUMENTADO: 800 → 1500
         self.spatial_grid     = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         self.particle_system  = ParticleSystem()
         self.spawn_manager    = SpawnManager()
@@ -59,11 +71,11 @@ class LevelManager:
                                                pygame.SRCALPHA)
         self.blood_surface.fill((0, 0, 0, 0))
 
-        # Intervalo base de AI (en frames a 60 fps) — se escala con target_fps
         self._ai_base_interval = 4
         self.ai_update_interval = 4
         self.frame_counter      = 0
 
+        # RESTAURADO: cooldown = 1 → sangre en cada impacto
         self.hit_particle_cooldown = 0
         self.particles_rendered    = 0
         self.enemies_rendered      = 0
@@ -72,7 +84,6 @@ class LevelManager:
         self._teleport_timer   = 0
         self._explosion_flash  = 0
 
-        # Reutilizar lista de enemigos activos (evita list() por frame)
         self._active_enemies_buf: list = []
 
     def initialize(self):
@@ -97,14 +108,11 @@ class LevelManager:
         self.camera.snap_to(self.player)
 
     def set_target_fps(self, fps: int):
-        """
-        Escalar los intervalos internos al FPS objetivo.
-        Llamar desde GameplayScene tras crear LevelManager.
-        A 60fps: escala=1.0, a 120fps: escala=2.0, a 240fps: escala=4.0
-        """
+        """Escalar intervalos internos al FPS objetivo."""
         scale = max(1.0, fps / 60.0)
         self._ai_base_interval = max(1, int(4 * scale))
-        self.particle_pool._bake_interval = max(4, int(8 * scale))
+        # bake_interval ya no se usa en update_and_bake, pero lo dejamos por compatibilidad
+        self.particle_pool._bake_interval = 1
 
     def update(self, dt, keys, mouse_pos, mouse_pressed, mobile=None):
         if self.game_over or not self.player or not self.player.is_alive:
@@ -147,7 +155,6 @@ class LevelManager:
 
         cam_offset = (self.camera.offset_x, self.camera.offset_y)
 
-        # Spatial grid — clear reutiliza listas (sin GC)
         self.spatial_grid.clear()
         for enemy in self.enemies:
             if enemy.is_alive:
@@ -172,12 +179,12 @@ class LevelManager:
                 self.enemies, cam_offset, player_pos=player_pos
             )
 
-        # Gemas — solo actualizar las que están en rango
         self._update_gems(dt)
 
-        # Baking delegado al pool (auto rate-limited)
-        self.particle_pool.bake_static_blood(self.blood_surface)
-        self.particle_pool.update_all(dt)
+        # OPTIMIZACIÓN PRINCIPAL: un solo pass que actualiza Y hornea
+        # Partículas estáticas (charcos, sangre detenida) se convierten en
+        # decals permanentes en blood_surface y sus slots se liberan inmediatamente.
+        self.particle_pool.update_and_bake(dt, self.blood_surface)
 
         if self._explosion_flash > 0:
             self._explosion_flash -= dt
@@ -185,7 +192,6 @@ class LevelManager:
         self.frame_counter += 1
 
     def _update_gems(self, dt):
-        """Solo actualizar gemas que están en rango del jugador o magnetizadas."""
         player_pos = self.player.get_position()
         px, py     = player_pos
         magnet_range = getattr(self.player, 'magnet_range_mult', 1.0)
@@ -216,7 +222,6 @@ class LevelManager:
         px, py     = player_pos
         ec         = len(self.enemies)
 
-        # Intervalo de AI escala con carga
         base = self._ai_base_interval
         if ec > 800:    interval = base * 2
         elif ec > 400:  interval = int(base * 1.5)
@@ -238,7 +243,6 @@ class LevelManager:
                 spawn_add(enemy)
                 continue
 
-            # AI en batch — solo la fracción correspondiente a este frame
             if i % interval == current_batch:
                 enemy.update_ai(player_pos, sg)
 
@@ -249,7 +253,6 @@ class LevelManager:
             if action:
                 self._handle_enemy_action(action, enemy)
 
-            # Ataque en rango (dist_sq < 2500 = 50²)
             dx = enemy.x - px
             dy = enemy.y - py
             if dx * dx + dy * dy < 2500:
@@ -331,14 +334,16 @@ class LevelManager:
                     if sp_sq > 0.01:
                         inv_sp = 1.0 / math.sqrt(sp_sq)
                         direction = (vx * inv_sp, vy * inv_sp)
-                    # OPTIMIZACIÓN: count reducido de 6 a 4
-                    # (junto con 2x en particle.py = 8 partículas vs 18 anteriores)
+
+                    # RESTAURADO: count=6 × 3x quality 2 = 18 partículas por impacto
+                    # Rendimiento garantizado por baking inmediato de las que se detienen
                     ps.create_blood_splatter(hit_enemy.x, hit_enemy.y,
                                              direction_vector=direction,
-                                             force=1.5, count=4)
-                    # OPTIMIZACIÓN: cooldown aumentado de 1→3 en quality 2
-                    # Antes: quality 2 generaba sangre casi cada frame al disparar
-                    hpc = 3 if ps.quality == 2 else 6
+                                             force=1.5, count=6)
+
+                    # RESTAURADO: cooldown=1 → sangre en cada impacto de bala
+                    # (era 3 en v2, reduciendo la densidad visual)
+                    hpc = 1 if ps.quality == 2 else 4
 
                 if hit_enemy.take_damage(projectile.damage):
                     self._on_enemy_killed(hit_enemy)
@@ -423,33 +428,30 @@ class LevelManager:
     def render_world(self, screen):
         self._render_grid(screen)
 
-        # Superficie de sangre permanente
         bg_x = max(0, int(-self.camera.offset_x))
         bg_y = max(0, int(-self.camera.offset_y))
         from settings import WINDOW_WIDTH, WINDOW_HEIGHT
         area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
         screen.blit(self.blood_surface, (0, 0), area=area_rect)
 
-        # --- PARTÍCULAS: floor pass ---
+        # NOTA: Con baking inmediato, 'floor' casi siempre estará vacío.
+        # Los charcos ya están en blood_surface. Solo quedan chunks lentos
+        # que aún no terminaron de moverse.
         self.particle_pool.render_all(screen, self.camera, layer='floor')
 
-        # Gemas
         cam = self.camera
         for gem in self.gems:
             gem.render(screen, cam)
 
-        # Proyectiles del jugador
         is_on = cam.is_on_screen
         for projectile in self.projectile_pool.active:
             if is_on(projectile.rect):
                 projectile.render(screen, cam)
 
-        # Proyectiles enemigos
         for ep in self.enemy_projectiles:
             if is_on(ep.rect):
                 ep.render(screen, cam)
 
-        # Enemigos
         self.enemies_rendered = 0
         render_margin = 200
         for enemy in self.enemies:
@@ -458,18 +460,15 @@ class LevelManager:
                 enemy.render(screen, cam)
                 self.enemies_rendered += 1
 
-        # Armas especiales (láser)
         if self.player:
             for weapon in self.player.weapons:
                 if hasattr(weapon, 'render'):
                     weapon.render(screen, cam)
             self.player.render(screen, cam)
 
-        # --- PARTÍCULAS: air pass ---
         rendered_air = self.particle_pool.render_all(screen, self.camera, layer='air')
         self.particles_rendered = rendered_air
 
-        # Flash de explosión
         if self._explosion_flash > 0:
             alpha = int(self._explosion_flash * 14)
             flash = pygame.Surface((screen.get_width(), screen.get_height()),
@@ -489,7 +488,6 @@ class LevelManager:
             pygame.draw.line(screen, gc, (x, 0), (x, WINDOW_HEIGHT))
         for y in range(int(sy), WINDOW_HEIGHT, gs):
             pygame.draw.line(screen, gc, (0, y), (WINDOW_WIDTH, y))
-        # Bordes del mundo
         for lx in (ox, ox + WORLD_WIDTH):
             if 0 <= lx <= WINDOW_WIDTH:
                 pygame.draw.line(screen, (100, 0, 0), (lx, 0), (lx, WINDOW_HEIGHT), 2)
