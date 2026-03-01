@@ -7,6 +7,12 @@ LevelManager optimizado:
 - Gems: solo actualiza las que están dentro de 2× la distancia de magnetismo.
 - _update_enemies: usa referencia local a player pos y avoid redundant lookups.
 - active_enemies re-usa la lista en lugar de crear nueva cada frame.
+
+OPTIMIZACIONES v2 (fix de 50fps al matar):
+- hit_particle_cooldown: era 1 en quality 2 (casi cada frame) → ahora 3.
+  Esto elimina el pico de CPU cuando se dispara continuamente.
+- create_blood_splatter count reducido de 6 a 4 (junto con la reducción 2x
+  de particle.py = 8 partículas en lugar de 18 por hit en quality 2).
 """
 import pygame
 import math
@@ -325,10 +331,14 @@ class LevelManager:
                     if sp_sq > 0.01:
                         inv_sp = 1.0 / math.sqrt(sp_sq)
                         direction = (vx * inv_sp, vy * inv_sp)
+                    # OPTIMIZACIÓN: count reducido de 6 a 4
+                    # (junto con 2x en particle.py = 8 partículas vs 18 anteriores)
                     ps.create_blood_splatter(hit_enemy.x, hit_enemy.y,
                                              direction_vector=direction,
-                                             force=1.5, count=6)
-                    hpc = 1 if ps.quality == 2 else 4
+                                             force=1.5, count=4)
+                    # OPTIMIZACIÓN: cooldown aumentado de 1→3 en quality 2
+                    # Antes: quality 2 generaba sangre casi cada frame al disparar
+                    hpc = 3 if ps.quality == 2 else 6
 
                 if hit_enemy.take_damage(projectile.damage):
                     self._on_enemy_killed(hit_enemy)
@@ -488,7 +498,7 @@ class LevelManager:
                 pygame.draw.line(screen, (100, 0, 0), (0, ly), (WINDOW_WIDTH, ly), 2)
 
     def get_debug_info(self):
-        active_p = sum(1 for p in self.particle_pool.pool if p.is_alive)
+        active_p = self.particle_pool._alive_count
         return {
             'enemies_total':      len(self.enemies),
             'enemies_rendered':   self.enemies_rendered,

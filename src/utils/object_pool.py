@@ -1,14 +1,15 @@
 """
 ObjectPool con corrección de zoom para partículas.
 
-Corrección en render_all():
-  - Antes:  sx = p.x + cam_x   (ignora zoom → partículas en posición incorrecta)
-  - Ahora:  sx = p.x * zoom + cam_x  (equivalente a apply_coords con zoom)
-  Derivación:
-    apply_coords(x) = (x - center_x)*zoom + CW/2
-    offset_x        = -center_x*zoom + CW/2
-    → (x - center_x)*zoom + CW/2 = x*zoom - center_x*zoom + CW/2 = x*zoom + offset_x
-  Con zoom=1 el resultado es idéntico al anterior.
+OPTIMIZACIONES v2:
+- ParticlePool mantiene `_alive_count` (entero) para saber cuántas partículas
+  están vivas sin recorrer el pool completo.
+- update_all() y render_all() saltan el loop si _alive_count == 0.
+- bake_static_blood() ídem.
+- get() incrementa _alive_count; Particle.is_alive = False lo decrementa
+  vía update_all() al detectar muerte.
+- El pool circular sobreescribe la partícula más antigua: si esa estaba viva,
+  el contador ya la contaba, así que no hace falta ajuste extra.
 """
 import pygame
 import math
@@ -68,7 +69,10 @@ class ProjectilePool:
 
 class ParticlePool:
     """
-    Pool de partículas con render de pasada ÚNICA y baking por intervalo.
+    Pool circular de partículas con:
+    - render de pasada ÚNICA (screen.blits)
+    - baking por intervalo
+    - _alive_count para saltarse loops cuando el pool está vacío/casi vacío
     """
     def __init__(self, capacity=800):
         self.capacity   = capacity
@@ -77,6 +81,9 @@ class ParticlePool:
         for p in self.pool:
             p.is_alive = False
         self.next_index = 0
+
+        # NUEVO: contador de activas — evita iterar 800 slots cuando hay pocas
+        self._alive_count = 0
 
         self._blit_floor: list = []
         self._blit_air:   list = []
@@ -114,40 +121,57 @@ class ParticlePool:
 
     def get(self, x, y, color, size, lifetime, velocity,
             gravity=0, friction=0.9, is_chunk=False, is_liquid=True):
-        p = self.pool[self.next_index]
+        slot = self.pool[self.next_index]
+
+        # Si sobreescribimos una partícula viva, restamos del contador
+        if slot.is_alive:
+            self._alive_count -= 1
+
         self.next_index = (self.next_index + 1) % self.capacity
-        p.x           = x
-        p.y           = y
-        p.color       = color
-        p.size        = size
-        p.original_size = size
-        p.lifetime    = lifetime
-        p.max_lifetime = lifetime
-        p.is_alive    = True
-        p.vel_x, p.vel_y = velocity
-        p.gravity     = gravity
-        p.friction    = friction
-        p.is_chunk    = is_chunk
-        p.is_liquid   = is_liquid
-        p.angle       = 0
-        return p
+
+        slot.x           = x
+        slot.y           = y
+        slot.color       = color
+        slot.size        = size
+        slot.original_size = size
+        slot.lifetime    = lifetime
+        slot.max_lifetime = lifetime
+        slot.is_alive    = True
+        slot.vel_x, slot.vel_y = velocity
+        slot.gravity     = gravity
+        slot.friction    = friction
+        slot.is_chunk    = is_chunk
+        slot.is_liquid   = is_liquid
+        slot.angle       = 0
+
+        self._alive_count += 1
+        return slot
 
     def update_all(self, dt):
+        # Skip completo si no hay ninguna partícula viva
+        if self._alive_count <= 0:
+            self._alive_count = 0
+            return
+
+        died = 0
         for p in self.pool:
             if p.is_alive:
                 p.update(dt)
+                if not p.is_alive:
+                    died += 1
+        self._alive_count -= died
+        if self._alive_count < 0:
+            self._alive_count = 0
 
     def render_all(self, screen, camera, layer='all'):
         """
         layer = 'floor'  → solo partículas estáticas (charcos)
         layer = 'air'    → solo partículas en movimiento
         layer = 'all'    → ambas
-
-        CORRECCIÓN: aplica zoom de cámara a la posición de cada partícula.
-          sx = p.x * zoom + cam_x   (en vez de p.x + cam_x)
-          cam_x = offset_x = -center_x*zoom + CW/2
-          → resultado: (p.x - center_x)*zoom + CW/2  == apply_coords(p.x)
         """
+        if self._alive_count <= 0:
+            return 0
+
         blit_floor = self._blit_floor
         blit_air   = self._blit_air
         blit_floor.clear()
@@ -165,7 +189,6 @@ class ParticlePool:
             if not p.is_alive:
                 continue
 
-            # CORRECCIÓN: multiplicar por zoom para posicionar correctamente
             if zoom == 1.0:
                 sx = p.x + cam_x
                 sy = p.y + cam_y
@@ -212,11 +235,15 @@ class ParticlePool:
             return len(blit_floor) + len(blit_air)
 
     def bake_static_blood(self, target_surface):
+        if self._alive_count <= 0:
+            return False
+
         self._bake_counter += 1
         if self._bake_counter < self._bake_interval:
             return False
         self._bake_counter = 0
 
+        baked = 0
         for p in self.pool:
             if not p.is_alive:
                 continue
@@ -228,8 +255,14 @@ class ParticlePool:
                 target_surface.blit(surf, (int(p.x - surf.get_width()  // 2),
                                            int(p.y - surf.get_height() // 2)))
                 p.is_alive = False
-        return True
+                baked += 1
+
+        self._alive_count -= baked
+        if self._alive_count < 0:
+            self._alive_count = 0
+        return baked > 0
 
     def clear(self):
         for p in self.pool:
             p.is_alive = False
+        self._alive_count = 0
