@@ -453,9 +453,6 @@ class MobileControls:
         # Etiquetas de zona (muy sutiles)
         self._render_zone_labels(screen)
 
-        # Banner de modo debug
-        self._render_debug_banner(screen)
-
     def _render_zone_labels(self, screen: pygame.Surface) -> None:
         if not hasattr(self, '_zone_font'):
             self._zone_font = pygame.font.Font(None, 18)
@@ -466,12 +463,3 @@ class MobileControls:
         for txt, tx, ty in pairs:
             surf = self._zone_font.render(txt, True, (120, 125, 145))
             screen.blit(surf, (int(tx) - surf.get_width() // 2, int(ty)))
-
-    def _render_debug_banner(self, screen: pygame.Surface) -> None:
-        if not self._debug_font:
-            self._debug_font = pygame.font.Font(None, 18)
-        surf = self._debug_font.render(
-            "MOBILE MODE  ·  F5 para desactivar",
-            True, (80, 82, 105)
-        )
-        screen.blit(surf, (6, self.screen_h - 16))

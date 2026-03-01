@@ -3,6 +3,7 @@ Escena de Gameplay.
 La lógica del juego vive en LevelManager.
 GameplayScene maneja UI, input y transiciones.
 La pausa se delega a PauseScene (scenes/pause.py).
+En Android los controles táctiles se activan automáticamente.
 """
 import pygame
 import math
@@ -12,6 +13,24 @@ from managers.level_manager import LevelManager
 from ui.hud import HUD
 from ui.mobile_controls import MobileControls
 
+def _detect_mobile() -> bool:
+    """
+    Comprueba si el juego corre en una plataforma móvil (Android).
+    Devuelve True para activar los controles táctiles desde el inicio.
+    """
+    try:
+        from utils.platform_detect import is_mobile
+        return is_mobile()
+    except ImportError:
+        import sys, os
+        if sys.platform == 'android':
+            return True
+        try:
+            import android
+            return True
+        except ImportError:
+            pass
+        return False
 
 class GameplayScene(Scene):
     def __init__(self, game):
@@ -26,8 +45,11 @@ class GameplayScene(Scene):
         self.crosshair_scale = 1.0
         self.last_pulse_time = 0
 
-        # Controles móviles
+        # Controles móviles — se activan automáticamente en Android
         self.mobile = MobileControls(WINDOW_WIDTH, WINDOW_HEIGHT)
+        if _detect_mobile():
+            self.mobile.enabled = True
+            print("[Platform] Android detectado — controles táctiles activados.")
 
     def on_enter(self):
         pygame.mouse.set_visible(self.mobile.enabled)
@@ -41,12 +63,12 @@ class GameplayScene(Scene):
         pygame.mouse.set_visible(True)
 
     def handle_events(self, event):
-        # Toggle modo móvil
+        # Toggle modo móvil (solo útil en PC para debug)
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F5:
             self.mobile.enabled = not self.mobile.enabled
             estado = "ACTIVADO" if self.mobile.enabled else "desactivado"
             print(f"[DEBUG] Modo móvil: {estado}")
-            pygame.mouse.set_visible(self.mobile.enabled)
+            pygame.mouse.set_visible(not self.mobile.enabled)
             return
 
         vpos = self._vpos_from_event(event)

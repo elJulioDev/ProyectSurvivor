@@ -254,8 +254,8 @@ class HUD:
             pygame.draw.rect(self.screen, dash_color,
                              (BAR_X, DASH_Y, dash_fill, DASH_H), border_radius=3)
 
-        dash_lbl = "DASH — desbloquealo" if not player.dash_unlocked else \
-                   ("DASH  ●  LISTO" if dash_pct >= 0.99 else "DASH  recargando…")
+        dash_lbl = "DASH — BLOQUEADO" if not player.dash_unlocked else \
+                   ("DASH — LISTO" if dash_pct >= 0.99 else "DASH  recargando…")
         dash_color_lbl = Palette.DASH_READY if (player.dash_unlocked and dash_pct >= 0.99) \
                          else Palette.DIM
         dl = self.f_tiny.render(dash_lbl, True, dash_color_lbl)
