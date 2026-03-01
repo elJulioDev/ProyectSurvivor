@@ -306,12 +306,14 @@ class HUD:
             'ShotgunWeapon':      'ESCOPETA',
             'AssaultRifleWeapon': 'RIFLE',
             'LaserWeapon':        'LÁSER',
+            'SniperWeapon':       'FRANCOTIRADOR',
         }
         WEAPON_COLORS = {
             'PistolWeapon':       (0, 210, 210),
             'ShotgunWeapon':      (255, 140, 40),
             'AssaultRifleWeapon': (255, 220, 70),
             'LaserWeapon':        (100, 180, 255),
+            'SniperWeapon':       (200, 255, 100),
         }
 
         for i, weapon in enumerate(player.weapons):

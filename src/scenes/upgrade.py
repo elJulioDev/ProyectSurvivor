@@ -1,5 +1,15 @@
 """
 Escena de Mejoras — con clock propio para limitarse a 60fps.
+
+NUEVOS REQUISITOS:
+  'ninja_dash_ready' → player.dash_unlocked + dash_cooldown maxed (3 stacks)
+  'aura_unlocked'    → player.aura_damage > 0
+
+NUEVOS STATS EN _apply_upgrade:
+  'ninja_dash'       → player.ninja_dash = True
+  'aura_damage'      → player.aura_damage += value
+  'aura_radius'      → player.aura_radius += value
+  'aura_damage_mult' → player.aura_damage *= value
 """
 import pygame
 import random
@@ -63,6 +73,34 @@ TOTAL_CARDS_W = CARD_W * 3 + CARD_GAP * 2
 CARDS_START_X = (WINDOW_WIDTH - TOTAL_CARDS_W) // 2
 
 
+def _check_requires(req: str, player) -> bool:
+    """
+    Evalúa el campo 'requires' de una mejora contra el estado actual del jugador.
+    Retorna True si el requisito se cumple (la mejora puede aparecer).
+    """
+    if req is None:
+        return True
+
+    if req == 'dash_unlocked':
+        return player.dash_unlocked
+
+    if req == 'aura_unlocked':
+        return getattr(player, 'aura_damage', 0.0) > 0
+
+    if req == 'ninja_dash_ready':
+        # Requiere: dash desbloqueado + Carga Rapida al máximo (3 stacks)
+        return (
+            player.dash_unlocked and
+            player.upgrade_counts.get('dash_cooldown', 0) >= 3
+        )
+
+    # Fallback: intenta acceder al atributo del jugador como bool
+    try:
+        return bool(getattr(player, req, False))
+    except Exception:
+        return False
+
+
 class UpgradeScene(Scene):
     def __init__(self, game, gameplay_scene):
         super().__init__(game)
@@ -95,14 +133,17 @@ class UpgradeScene(Scene):
 
         for key, upg in UPGRADES.items():
             req = upg.get('requires')
-            if req == 'dash_unlocked' and not player.dash_unlocked:
+            # ── Nuevo sistema de requisitos unificado ──────────────────
+            if not _check_requires(req, player):
                 continue
+
             if upg['type'] == 'unlock' and key == 'dash':
                 if player.dash_unlocked:
                     continue
             elif upg['type'] == 'unlock_weapon':
                 if upg['weapon_class'] in player.unlocked_weapons:
                     continue
+
             max_stacks = upg.get('max_stacks')
             if max_stacks is not None:
                 current = player.upgrade_counts.get(key, 0)
@@ -111,6 +152,7 @@ class UpgradeScene(Scene):
             if not upg.get('stackable', False):
                 if player.upgrade_counts.get(key, 0) >= 1:
                     continue
+
             available_keys.append(key)
             rarity = upg.get('rarity', 'common')
             available_weights.append(RARITY_WEIGHTS.get(rarity, 20))
@@ -186,11 +228,14 @@ class UpgradeScene(Scene):
 
         if utype == 'unlock' and key == 'dash':
             player.dash_unlocked = True
+
         elif utype == 'unlock_weapon':
             player.add_weapon(upg['weapon_class'], proj_pool)
+
         elif utype == 'stat':
             sname = upg['stat_name']
             val   = upg['value']
+
             if sname == 'max_speed':
                 player.max_speed *= val
                 player.accel     *= val
@@ -211,6 +256,25 @@ class UpgradeScene(Scene):
                 player.dash_cooldown = max(10, int(player.dash_cooldown * val))
             elif sname == 'dash_duration':
                 player.dash_duration = int(player.dash_duration * val)
+
+            # ── NUEVOS STATS ──────────────────────────────────────────
+            elif sname == 'ninja_dash':
+                # val es True (bool) — activa el modo ninja
+                player.ninja_dash = True
+                print("🥷 Artes Oscuras desbloqueado — el Dash mata instantáneamente.")
+
+            elif sname == 'aura_damage':
+                player.aura_damage += val
+                print(f"🌀 Aura de Espinas: {player.aura_damage:.1f} DPS")
+
+            elif sname == 'aura_radius':
+                player.aura_radius += val
+                print(f"🌀 Radio del Aura: {player.aura_radius:.0f}px")
+
+            elif sname == 'aura_damage_mult':
+                player.aura_damage *= val
+                print(f"🌀 Aura Sobrecargada: {player.aura_damage:.1f} DPS")
+
         elif utype == 'weapon':
             sname = upg['stat_name']
             val   = upg['value']
@@ -220,6 +284,7 @@ class UpgradeScene(Scene):
             elif sname == 'extra_penetration':     player.extra_penetration     += int(val)
             elif sname == 'projectile_size_mult':  player.projectile_size_mult  *= val
             elif sname == 'knockback_mult':        player.knockback_mult        *= val
+
         elif utype == 'xp':
             sname = upg['stat_name']
             val   = upg['value']
@@ -231,7 +296,6 @@ class UpgradeScene(Scene):
         print(f"✅ Mejora aplicada: [{upg['rarity'].upper()}] {upg['name']}")
 
     def update(self):
-        # Limitar a 60fps — necesario porque main.py ya no llama clock.tick()
         dt_ms = self._clock.tick(60)
         dt = dt_ms / 16.667
 

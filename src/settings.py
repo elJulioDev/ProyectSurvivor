@@ -54,7 +54,10 @@ MOBILE_CAMERA_ZOOM = 1.6
 # category:    'movement' | 'survival' | 'weapons' | 'xp'
 # stackable:   Si puede elegirse más de una vez
 # max_stacks:  Límite de veces que puede acumularse (None = sin límite)
-# requires:    Condición para que aparezca (str con nombre de flag del player)
+# requires:    Condición para que aparezca:
+#                'dash_unlocked'   → player.dash_unlocked == True
+#                'aura_unlocked'   → player.aura_damage > 0
+#                'ninja_dash_ready'→ dash desbloqueado + dash_cooldown al máximo (3 stacks)
 
 UPGRADES = {
 
@@ -98,6 +101,23 @@ UPGRADES = {
         'stackable': False,
         'requires': 'dash_unlocked',
         'rarity': 'rare',
+        'category': 'movement',
+    },
+
+    # ARTES OSCURAS — habilidad Ninja del Dash
+    # Aparece solo cuando: dash desbloqueado + Carga Rapida al max (3 stacks)
+    'ninja_dash': {
+        'name': 'Artes Oscuras',
+        'desc': (
+            'El Dash atraviesa y MATA INSTANTANEAMENTE a los zombies en tu camino. '
+            'Requiere Dash desbloqueado y Carga Rapida al maximo.'
+        ),
+        'type': 'stat',
+        'stat_name': 'ninja_dash',
+        'value': True,
+        'stackable': False,
+        'requires': 'ninja_dash_ready',
+        'rarity': 'legendary',
         'category': 'movement',
     },
 
@@ -174,6 +194,51 @@ UPGRADES = {
         'stackable': True,
         'max_stacks': 3,
         'rarity': 'rare',
+        'category': 'survival',
+    },
+
+    # AURA DE ESPINAS — daño en área (estilo ajo de Vampire Survivors)
+    'aura_espinas': {
+        'name': 'Aura de Espinas',
+        'desc': (
+            'Genera un campo de energia violeta que inflige 12 DPS a todos los '
+            'zombies cercanos. Radio base: 80px. Apilable para mas daño.'
+        ),
+        'type': 'stat',
+        'stat_name': 'aura_damage',
+        'value': 12.0,
+        'stackable': True,
+        'max_stacks': 5,
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
+    'aura_radio': {
+        'name': 'Campo Expandido',
+        'desc': (
+            '+40px al radio del Aura de Espinas. Cubre mas terreno '
+            'y elimina grupos densos mas facilmente.'
+        ),
+        'type': 'stat',
+        'stat_name': 'aura_radius',
+        'value': 40.0,
+        'stackable': True,
+        'max_stacks': 4,
+        'requires': 'aura_unlocked',
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
+    'aura_sobrecarga': {
+        'name': 'Sobrecarga del Aura',
+        'desc': (
+            'DUPLICA el daño del Aura de Espinas. Para builds que confian '
+            'en el daño en area mas que en las armas.'
+        ),
+        'type': 'stat',
+        'stat_name': 'aura_damage_mult',
+        'value': 2.0,
+        'stackable': False,
+        'requires': 'aura_unlocked',
+        'rarity': 'epic',
         'category': 'survival',
     },
 
@@ -288,6 +353,18 @@ UPGRADES = {
         'type': 'unlock_weapon',
         'weapon_class': 'LaserWeapon',
         'rarity': 'legendary',
+        'category': 'weapons',
+    },
+    'unlock_sniper': {
+        'name': 'Rifle de Caza',
+        'desc': (
+            'Desbloquea el Francotirador (Tecla 5). '
+            'Maxima penetracion (8 zombies), 110 de daño por disparo, '
+            'proyectil ultrarapido y preciso. Recarga lenta.'
+        ),
+        'type': 'unlock_weapon',
+        'weapon_class': 'SniperWeapon',
+        'rarity': 'epic',
         'category': 'weapons',
     },
 

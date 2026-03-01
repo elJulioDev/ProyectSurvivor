@@ -1,6 +1,11 @@
 """
 Jugador optimizado con DeltaTime + Sistema de Dash Profesional
 Stats expandidos para el nuevo sistema de mejoras.
+
+NUEVOS STATS:
+  aura_damage     → DPS del Aura de Espinas (0 = inactiva)
+  aura_radius     → Radio del aura en píxeles (base 80)
+  ninja_dash      → Si True, el dash mata enemigos al atravesarlos
 """
 
 import pygame, math
@@ -71,10 +76,17 @@ class Player:
         # STATS DE MEJORAS — Supervivencia
         self.health_regen      = 0.0
         self.damage_reduction  = 0.0
-        self.lifesteal         = 5      # HP recuperados cuando proc vampirismo
-        self.lifesteal_chance  = 0.0    # probabilidad (0.0–1.0) de proc por kill
+        self.lifesteal         = 5
+        self.lifesteal_chance  = 0.0
         self.emergency_regen   = 0.0
         self.invulnerable_mult = 1.0
+
+        # STATS DE MEJORAS — Aura de daño (nueva)
+        self.aura_damage = 0.0       # DPS que inflige a enemigos cercanos
+        self.aura_radius = 80.0      # Radio del aura en píxeles
+
+        # STATS DE MEJORAS — Dash Ninja (nueva)
+        self.ninja_dash = False      # Si True, el dash mata enemigos al contacto
 
         # STATS DE MEJORAS — XP / Gemas
         self.xp_mult           = 1.0
@@ -114,6 +126,8 @@ class Player:
                 self.current_weapon_index = 2
             elif event.key == pygame.K_4 and len(self.weapons) > 3:
                 self.current_weapon_index = 3
+            elif event.key == pygame.K_5 and len(self.weapons) > 4:
+                self.current_weapon_index = 4
             elif event.key == pygame.K_h:
                 self.heal(10)
                 self.damage_flash = 5
@@ -244,11 +258,12 @@ class Player:
         self.angle = math.atan2(dy, dx)
 
     def add_weapon(self, weapon_class, projectile_pool):
-        from entities.weapon import ShotgunWeapon, LaserWeapon, AssaultRifleWeapon
+        from entities.weapon import ShotgunWeapon, LaserWeapon, AssaultRifleWeapon, SniperWeapon
         weapon_map = {
             'ShotgunWeapon':       ShotgunWeapon,
             'AssaultRifleWeapon':  AssaultRifleWeapon,
             'LaserWeapon':         LaserWeapon,
+            'SniperWeapon':        SniperWeapon,
         }
         if weapon_class in weapon_map and weapon_class not in self.unlocked_weapons:
             new_weapon = weapon_map[weapon_class](self)
@@ -349,24 +364,39 @@ class Player:
         if self.invulnerable_frames > 0 and int(self.invulnerable_frames) % 6 < 3:
             return
 
+        # Ghost trail del dash — color especial si ninja_dash activo
         if self.dash_active and len(self.ghost_positions) > 0:
             for i, (gx, gy, gangle) in enumerate(self.ghost_positions):
                 alpha = int(180 * (i / max(1, len(self.ghost_positions))))
                 ghost_screen = camera.apply_coords(gx, gy)
                 gsx, gsy = int(ghost_screen[0]), int(ghost_screen[1])
+
+                if self.ninja_dash:
+                    # Trail oscuro-violeta para indicar el modo ninja
+                    ghost_color = (100, 0, 180, alpha)
+                else:
+                    ghost_color = (255, 255, 255, alpha)
+
                 ghost_surf = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
-                ghost_surf.fill((255, 255, 255, alpha))
+                ghost_surf.fill(ghost_color)
                 screen.blit(ghost_surf, (gsx - self.size//2, gsy - self.size//2))
                 if alpha > 50:
                     end_x = gsx + math.cos(gangle) * (self.size * 1.2)
                     end_y = gsy + math.sin(gangle) * (self.size * 1.2)
-                    pygame.draw.line(screen, (255, 255, 255, alpha),
+                    line_color = ghost_color[:3] if len(ghost_color) == 4 else ghost_color
+                    pygame.draw.line(screen, line_color,
                                      (gsx, gsy), (end_x, end_y), 2)
 
         render_color = self.color
         if self.damage_flash > 0:
             flash = int(255 * (self.damage_flash / 15))
             render_color = (255, max(0, 255 - flash), max(0, 255 - flash))
+
+        # Contorno violeta si ninja_dash activo (indicador visual de estado)
+        if self.ninja_dash and self.dash_unlocked:
+            pygame.draw.rect(screen, (160, 0, 255),
+                             (screen_x - self.size//2 - 2, screen_y - self.size//2 - 2,
+                              self.size + 4, self.size + 4))
 
         pygame.draw.rect(screen, render_color,
                          (screen_x - self.size//2, screen_y - self.size//2,

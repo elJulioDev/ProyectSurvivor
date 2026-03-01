@@ -1,31 +1,21 @@
 """
 LevelManager con sistema de partículas GORE COMPLETO restaurado.
 
-CAMBIOS v3 (restauración visual + optimización real):
+NUEVAS MECÁNICAS:
 ────────────────────────────────────────────────────────────────
-PROBLEMA v2: Se redujeron conteos visuales (2x splatter, cooldown=3, 14 mist...)
-  → El juego perdió su identidad frenética y sangrienta.
+1. AURA DE ESPINAS (_update_aura):
+   - Daña a todos los enemigos dentro de player.aura_radius cada frame.
+   - DPS escalado por dt (frame-rate independent).
+   - Renderizada como círculo pulsante fucsia/violeta alrededor del jugador.
+   - Se activa cuando player.aura_damage > 0.
 
-SOLUCIÓN v3: Optimización correcta basada en el CICLO DE VIDA del pool:
-
-1. update_and_bake(dt, blood_surface) — un solo pass que:
-   · Actualiza partículas dinámicas (splatter en vuelo, chunks, mist)
-   · Hornea INMEDIATAMENTE partículas estáticas (charcos, sangre detenida)
-     al blood_surface permanente y libera sus slots del pool
-   · Resultado: el pool de 1500 slots contiene SOLO partículas activas
-
-2. Conteos RESTAURADOS completamente:
-   · hit_particle_cooldown = 1 (cada impacto genera sangre)
-   · create_blood_splatter count = 6 (x3 en quality 2 = 18 partículas)
-   · viscera: mist=22, chunks=9, pool=4-8 blobs
-
-3. Por qué funciona sin caída de FPS:
-   · Charcos/drips (vel=0): 1 frame en pool → baked → slot libre
-   · Splatter en vuelo: ~15-40 frames activos → se detienen → baked
-   · Solo los CHUNKS (is_chunk=True) permanecen como decals dinámicos
-   · Pool 1500 con baking inmediato ≈ nunca se satura en combate normal
-
-Eficiencia de intervalos de AI escala con target_fps.
+2. DASH NINJA (_check_ninja_dash):
+   - Activo cuando player.ninja_dash = True y player.dash_active = True.
+   - Mata instantáneamente a cualquier enemigo dentro del radio de colisión
+     durante la duración del dash.
+   - Genera explosión de vísceras en cada kill.
+   - Los kills otorgan puntos, XP y activan lifesteal normalmente.
+   - Radio de kill: player.size * 2.8 px (hitbox generosa, no puntual).
 """
 import pygame
 import math
@@ -56,7 +46,7 @@ GEM_UPDATE_RADIUS_SQ = 2000 ** 2
 class LevelManager:
     def __init__(self):
         self.projectile_pool  = ProjectilePool(initial_size=500)
-        self.particle_pool    = ParticlePool(capacity=1500)   # AUMENTADO: 800 → 1500
+        self.particle_pool    = ParticlePool(capacity=1500)
         self.spatial_grid     = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         self.particle_system  = ParticleSystem()
         self.spawn_manager    = SpawnManager()
@@ -75,7 +65,6 @@ class LevelManager:
         self.ai_update_interval = 4
         self.frame_counter      = 0
 
-        # RESTAURADO: cooldown = 1 → sangre en cada impacto
         self.hit_particle_cooldown = 0
         self.particles_rendered    = 0
         self.enemies_rendered      = 0
@@ -85,6 +74,10 @@ class LevelManager:
         self._explosion_flash  = 0
 
         self._active_enemies_buf: list = []
+
+        # Ninja dash: set de enemigos ya golpeados en el dash actual
+        # (evita matar el mismo enemigo varias veces por frame)
+        self._ninja_dash_hit_set: set = set()
 
     def initialize(self):
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
@@ -105,13 +98,13 @@ class LevelManager:
         self._gem_merge_timer     = 0
         self._teleport_timer      = 0
         self._explosion_flash     = 0
+        self._ninja_dash_hit_set.clear()
         self.camera.snap_to(self.player)
 
     def set_target_fps(self, fps: int):
         """Escalar intervalos internos al FPS objetivo."""
         scale = max(1.0, fps / 60.0)
         self._ai_base_interval = max(1, int(4 * scale))
-        # bake_interval ya no se usa en update_and_bake, pero lo dejamos por compatibilidad
         self.particle_pool._bake_interval = 1
 
     def update(self, dt, keys, mouse_pos, mouse_pressed, mobile=None):
@@ -134,12 +127,9 @@ class LevelManager:
             mdx, mdy = mobile.movement
             self.player.handle_input_mobile(mdx, mdy, dt)
             if mobile.aim_angle is not None:
-                # Si el usuario usa el joystick derecho, miramos a esa dirección
                 self.player.angle = mobile.aim_angle
             elif mdx != 0 or mdy != 0:
-                # Si no usa el joystick derecho pero se está moviendo, miramos a la dirección de movimiento
                 self.player.angle = math.atan2(mdy, mdx)
-            # Si no apunta ni se mueve, el jugador simplemente mantiene el ángulo que ya tenía.
             if mobile.fire:
                 self.player.attack(self.camera)
         else:
@@ -167,6 +157,10 @@ class LevelManager:
         self._update_projectiles(dt)
         self._update_enemy_projectiles(dt)
 
+        # NUEVAS MECÁNICAS
+        self._update_aura(dt)
+        self._check_ninja_dash()
+
         player_pos = self.player.get_position()
         new_enemies = self.spawn_manager.update(
             dt, len(self.enemies), cam_offset, player_pos=player_pos
@@ -183,15 +177,87 @@ class LevelManager:
 
         self._update_gems(dt)
 
-        # OPTIMIZACIÓN PRINCIPAL: un solo pass que actualiza Y hornea
-        # Partículas estáticas (charcos, sangre detenida) se convierten en
-        # decals permanentes en blood_surface y sus slots se liberan inmediatamente.
         self.particle_pool.update_and_bake(dt, self.blood_surface)
 
         if self._explosion_flash > 0:
             self._explosion_flash -= dt
 
+        # Limpiar el set ninja dash al terminar el frame si el dash ya acabó
+        if not self.player.dash_active:
+            self._ninja_dash_hit_set.clear()
+
         self.frame_counter += 1
+
+    # ──────────────────────────────────────────────────────────────────
+    # AURA DE ESPINAS
+    # ──────────────────────────────────────────────────────────────────
+    def _update_aura(self, dt):
+        """
+        Inflige daño continuo a todos los enemigos dentro de aura_radius.
+        DPS escalado correctamente con dt (frame-rate independent).
+        """
+        player = self.player
+        aura_dmg = getattr(player, 'aura_damage', 0.0)
+        if aura_dmg <= 0:
+            return
+
+        aura_radius    = getattr(player, 'aura_radius', 80.0)
+        radius_sq      = aura_radius * aura_radius
+        px, py         = player.x, player.y
+        dmg_per_frame  = aura_dmg * dt / 60.0   # DPS → daño por frame
+
+        for enemy in self.enemies:
+            if not enemy.is_alive:
+                continue
+            dx = enemy.x - px
+            dy = enemy.y - py
+            if dx * dx + dy * dy <= radius_sq:
+                # Pequeñas partículas de chispa para feedback visual
+                if self.frame_counter % 8 == 0 and self.particle_system.quality > 0:
+                    self.particle_system.create_blood_splatter(
+                        enemy.x, enemy.y, force=0.4, count=1
+                    )
+                if enemy.take_damage(dmg_per_frame):
+                    self._on_enemy_killed(enemy)
+
+    # ──────────────────────────────────────────────────────────────────
+    # DASH NINJA (Artes Oscuras)
+    # ──────────────────────────────────────────────────────────────────
+    def _check_ninja_dash(self):
+        """
+        Si el jugador tiene ninja_dash activo y está en medio de un dash,
+        mata instantáneamente a cualquier enemigo dentro del radio de colisión.
+
+        · Radio de kill: player.size * 2.8  (hitbox generosa)
+        · Usa _ninja_dash_hit_set para no matar el mismo enemigo dos veces
+          durante el mismo dash.
+        · Los kills otorgan puntos, XP, lifesteal y explosión de vísceras.
+        """
+        player = self.player
+        if not getattr(player, 'ninja_dash', False):
+            return
+        if not player.dash_active:
+            return
+
+        px, py      = player.x, player.y
+        kill_radius = player.size * 2.8
+        kill_r_sq   = kill_radius * kill_radius
+
+        for enemy in self.enemies:
+            if not enemy.is_alive:
+                continue
+            if id(enemy) in self._ninja_dash_hit_set:
+                continue
+            dx = enemy.x - px
+            dy = enemy.y - py
+            if dx * dx + dy * dy <= kill_r_sq:
+                self._ninja_dash_hit_set.add(id(enemy))
+                enemy.is_alive = False
+                self._on_enemy_killed(enemy)
+                # Partículas extra para el kill ninja
+                self.particle_system.create_viscera_explosion(enemy.x, enemy.y)
+                # Pequeño destello de cámara por cada kill
+                self.camera.add_shake(3)
 
     def _update_gems(self, dt):
         player_pos = self.player.get_position()
@@ -338,14 +404,9 @@ class LevelManager:
                         inv_sp = 1.0 / math.sqrt(sp_sq)
                         direction = (vx * inv_sp, vy * inv_sp)
 
-                    # RESTAURADO: count=6 × 3x quality 2 = 18 partículas por impacto
-                    # Rendimiento garantizado por baking inmediato de las que se detienen
                     ps.create_blood_splatter(hit_enemy.x, hit_enemy.y,
                                              direction_vector=direction,
                                              force=1.5, count=6)
-
-                    # RESTAURADO: cooldown=1 → sangre en cada impacto de bala
-                    # (era 3 en v2, reduciendo la densidad visual)
                     hpc = 1 if ps.quality == 2 else 4
 
                 if hit_enemy.take_damage(projectile.damage):
@@ -427,7 +488,9 @@ class LevelManager:
                 new_gems.append(gem)
         self.gems = new_gems
 
+    # ──────────────────────────────────────────────────────────────────
     # RENDER
+    # ──────────────────────────────────────────────────────────────────
     def render_world(self, screen):
         self._render_grid(screen)
 
@@ -437,9 +500,6 @@ class LevelManager:
         area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
         screen.blit(self.blood_surface, (0, 0), area=area_rect)
 
-        # NOTA: Con baking inmediato, 'floor' casi siempre estará vacío.
-        # Los charcos ya están en blood_surface. Solo quedan chunks lentos
-        # que aún no terminaron de moverse.
         self.particle_pool.render_all(screen, self.camera, layer='floor')
 
         cam = self.camera
@@ -463,6 +523,10 @@ class LevelManager:
                 enemy.render(screen, cam)
                 self.enemies_rendered += 1
 
+        # Aura visual — se dibuja ANTES del jugador para que quede debajo
+        if self.player:
+            self._render_aura(screen)
+
         if self.player:
             for weapon in self.player.weapons:
                 if hasattr(weapon, 'render'):
@@ -478,6 +542,64 @@ class LevelManager:
                                    pygame.SRCALPHA)
             flash.fill((255, 60, 0, min(80, alpha)))
             screen.blit(flash, (0, 0))
+
+        # Indicador visual del Dash Ninja cuando está activo
+        if self.player and self.player.ninja_dash and self.player.dash_active:
+            self._render_ninja_dash_effect(screen)
+
+    def _render_aura(self, screen):
+        """Renderiza el Aura de Espinas como un círculo pulsante violeta/fucsia."""
+        player = self.player
+        aura_dmg = getattr(player, 'aura_damage', 0.0)
+        if aura_dmg <= 0:
+            return
+
+        aura_radius = int(getattr(player, 'aura_radius', 80.0))
+        sp = self.camera.apply_coords(player.x, player.y)
+        cx, cy = int(sp[0]), int(sp[1])
+
+        # Pulso: dos ondas desfasadas
+        t = self.frame_counter * 0.05
+        pulse_a = (math.sin(t) + 1.0) * 0.5
+        pulse_b = (math.sin(t + math.pi) + 1.0) * 0.5
+
+        # Relleno semitransparente interior
+        fill_alpha = int(18 + pulse_a * 14)
+        fill_surf = pygame.Surface((aura_radius * 2, aura_radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(fill_surf, (180, 30, 255, fill_alpha),
+                           (aura_radius, aura_radius), aura_radius)
+        screen.blit(fill_surf, (cx - aura_radius, cy - aura_radius))
+
+        # Aro exterior (pulsa más fuerte)
+        ring_alpha = int(90 + pulse_b * 80)
+        ring_surf = pygame.Surface((aura_radius * 2, aura_radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(ring_surf, (220, 60, 255, ring_alpha),
+                           (aura_radius, aura_radius), aura_radius, 2)
+        screen.blit(ring_surf, (cx - aura_radius, cy - aura_radius))
+
+        # Segunda onda expandida (eco del aura)
+        echo_r = int(aura_radius * (1.0 + pulse_a * 0.15))
+        echo_alpha = int(40 * (1.0 - pulse_a))
+        if echo_r > 0 and echo_alpha > 4:
+            echo_surf = pygame.Surface((echo_r * 2, echo_r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(echo_surf, (200, 80, 255, echo_alpha),
+                               (echo_r, echo_r), echo_r, 1)
+            screen.blit(echo_surf, (cx - echo_r, cy - echo_r))
+
+    def _render_ninja_dash_effect(self, screen):
+        """Efecto visual de estela oscura durante el Dash Ninja."""
+        player = self.player
+        sp = self.camera.apply_coords(player.x, player.y)
+        cx, cy = int(sp[0]), int(sp[1])
+
+        progress = player.dash_timer / player.dash_duration
+        ring_r = int(player.size * 1.8 + (1.0 - progress) * 20)
+        ring_alpha = int(progress * 180)
+
+        ring_surf = pygame.Surface((ring_r * 2, ring_r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(ring_surf, (140, 0, 255, ring_alpha),
+                           (ring_r, ring_r), ring_r, 3)
+        screen.blit(ring_surf, (cx - ring_r, cy - ring_r))
 
     def _render_grid(self, screen):
         from settings import WINDOW_WIDTH, WINDOW_HEIGHT
