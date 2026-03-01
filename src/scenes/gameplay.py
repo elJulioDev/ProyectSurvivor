@@ -5,6 +5,8 @@ GameplayScene optimizado:
 - LevelManager.set_target_fps() llamado al iniciar para escalar intervalos.
 - F6: ciclo entre 60 / 120 / 240 / 0fps en tiempo real.
 - Cruce de delta-time máximo reducido a 2.5 para evitar micro-freezes.
+
+PARCHE 2: MOBILE_CAMERA_ZOOM aplicado en on_enter() cuando se detecta móvil.
 """
 import pygame
 import math
@@ -60,6 +62,13 @@ class GameplayScene(Scene):
         self.show_debug      = False
         self.crosshair_scale = 1.0
 
+        # PARCHE 2: aplicar MOBILE_CAMERA_ZOOM cuando se ejecuta en móvil
+        if self.mobile.enabled:
+            from settings import MOBILE_CAMERA_ZOOM
+            self.level.camera.zoom = MOBILE_CAMERA_ZOOM
+        else:
+            self.level.camera.zoom = 1.0
+
     def on_exit(self):
         if self.level:
             self.level.cleanup()
@@ -70,6 +79,12 @@ class GameplayScene(Scene):
             self.mobile.enabled = not self.mobile.enabled
             print(f"[DEBUG] Modo móvil: {'ON' if self.mobile.enabled else 'OFF'}")
             pygame.mouse.set_visible(self.mobile.enabled)
+            # Re-aplicar zoom al cambiar modo
+            if self.mobile.enabled:
+                from settings import MOBILE_CAMERA_ZOOM
+                self.level.camera.zoom = MOBILE_CAMERA_ZOOM
+            else:
+                self.level.camera.zoom = 1.0
             return
 
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F6:
@@ -218,7 +233,6 @@ class GameplayScene(Scene):
         fps_lbl = f"{self.target_fps}fps" if self.target_fps > 0 else "ILIMITADO"
         mobile_str = "ON [F5 desact.]" if self.mobile.enabled else "OFF [F5 act.]"
 
-        # Calidad legible
         q_labels = {0: "CRISIS (0)", 1: "MEDIO (1)", 2: "ALTO (2)"}
         q_str = q_labels.get(d.get('particle_quality', 2), "?")
 
@@ -228,7 +242,7 @@ class GameplayScene(Scene):
             f"Proyectiles: {d['projectiles']}  |  Enemi: {d['enemy_projectiles']}",
             f"Partículas: {d['particles_active']} (render: {d['particles_rendered']}) / {d['particles_capacity']}  |  Calidad: {q_str}",
             f"Kills este frame: {d.get('kills_this_frame', 0)}  |  Gemas XP: {d['gems_count']}",
-            f"Móvil: {mobile_str}",
+            f"Móvil: {mobile_str}  |  Camera zoom: {self.level.camera.zoom:.2f}",
             f"[X] Toggle Debug",
         ]
         y = 110

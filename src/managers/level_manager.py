@@ -1,39 +1,14 @@
 """
 LevelManager con sistema de partículas GORE optimizado para alto rendimiento.
 
-MEJORAS DE RENDIMIENTO v2:
-────────────────────────────────────────────────────────────────
-
-1. LOD MEJORADO (_update_lod):
-   - Ahora considera TANTO enemigos visibles COMO partículas activas.
-   - Umbrales más agresivos: quality=0 se activa con >350 enemigos O >600 partículas.
-   - Se llama al INICIO de update() para que afecte a todos los sistemas ese mismo frame.
-
-2. THROTTLE DE PARTÍCULAS POR FRAME (_kills_this_frame):
-   - Contador que se resetea cada frame en update().
-   - _on_enemy_killed() lo usa para degradar el efecto visual según cuántos
-     enemigos han muerto en el frame actual:
-       kills 1–6  → create_viscera_explosion() (efecto completo)
-       kills 7–16 → create_blood_pool() (solo charco, sin chunks)
-       kills >16  → sin partículas (solo gemas + score)
-   - Resuelve el pico de rendimiento al hacer ninja dash sobre cientos de
-     enemigos apilados (antes: cientos × 32 partículas/frame).
-
-3. FIX DOUBLE VISCERA en _check_ninja_dash:
-   - Antes se llamaba _on_enemy_killed() (crea viscera) Y ADEMÁS
-     create_viscera_explosion() manualmente → doble explosión por kill.
-   - Ahora _on_enemy_killed() es la única fuente de efectos visuales.
-   - _check_ninja_dash solo agrega shake proporcional al total de kills.
-
-MECÁNICAS EXISTENTES (sin cambios):
-────────────────────────────────────────────────────────────────
-1. AURA DE ESPINAS (_update_aura): DPS en área, visual pulsante.
-2. DASH NINJA (_check_ninja_dash): Kill instantáneo al atravesar enemigos.
+PARCHE DE RENDIMIENTO ANDROID aplicado:
+  - PROBLEMA 1: blood_surface reducida a tamaño de VENTANA (no del mundo)
+  - PROBLEMA 3: Límites de enemigos y partículas adaptados a móvil
 """
 import pygame
 import math
 import random
-from settings import WORLD_WIDTH, WORLD_HEIGHT
+from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 from entities.player     import Player
 from entities.particle   import ParticleSystem
 from entities.weapon     import LaserWeapon
@@ -64,10 +39,18 @@ _PARTICLE_POOL_KILLS  = 16   # kills 7..16  → solo charco
 class LevelManager:
     def __init__(self):
         self.projectile_pool  = ProjectilePool(initial_size=500)
-        self.particle_pool    = ParticlePool(capacity=1500)
+
+        # PARCHE 3b: capacidad reducida en móvil (600 vs 1500)
+        _particle_cap = 600 if is_mobile() else 1500
+        self.particle_pool    = ParticlePool(capacity=_particle_cap)
+
         self.spatial_grid     = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         self.particle_system  = ParticleSystem()
-        self.spawn_manager    = SpawnManager()
+
+        # PARCHE 3: detectar móvil y pasarlo al SpawnManager
+        self._is_mobile = is_mobile()
+        self.spawn_manager    = SpawnManager(mobile=self._is_mobile)
+
         self.gems: list[ExperienceGem] = []
         self.camera           = Camera(WORLD_WIDTH, WORLD_HEIGHT)
         self.player           = None
@@ -75,9 +58,15 @@ class LevelManager:
         self.enemy_projectiles: list[EnemyProjectile] = []
         self.score            = 0
         self.game_over        = False
-        self.blood_surface    = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT),
-                                               pygame.SRCALPHA)
+
+        # PARCHE 1: blood_surface del tamaño de la VENTANA (no del mundo).
+        # Reduce uso de RAM de ~432 MB a ~3.7 MB en Android.
+        self.blood_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT),
+                                            pygame.SRCALPHA)
         self.blood_surface.fill((0, 0, 0, 0))
+        # Posición de la cámara en el frame anterior (para scroll del blood_surface)
+        self._blood_cam_x = 0.0
+        self._blood_cam_y = 0.0
 
         self._ai_base_interval = 4
         self.ai_update_interval = 4
@@ -108,11 +97,19 @@ class LevelManager:
         self.enemy_projectiles.clear()
         self.projectile_pool.clear()
         self.particle_pool.clear()
+
+        # PARCHE 1: reset blood_surface y posición de cámara
         self.blood_surface.fill((0, 0, 0, 0))
+        self._blood_cam_x = 0.0
+        self._blood_cam_y = 0.0
+
         self.score    = 0
         self.game_over = False
         self.gems.clear()
-        self.spawn_manager        = SpawnManager()
+
+        # PARCHE 3: pasar flag móvil al SpawnManager al reiniciar
+        self.spawn_manager        = SpawnManager(mobile=self._is_mobile)
+
         self.hit_particle_cooldown = 0
         self.frame_counter        = 0
         self._gem_merge_timer     = 0
@@ -128,21 +125,7 @@ class LevelManager:
         self._ai_base_interval = max(1, int(4 * scale))
         self.particle_pool._bake_interval = 1
 
-    # ──────────────────────────────────────────────────────────────────
-    # LOD MEJORADO
-    # ──────────────────────────────────────────────────────────────────
     def _update_lod(self):
-        """
-        Ajusta la calidad de partículas según la carga actual de la escena.
-
-        Considera TANTO enemigos visibles (del frame anterior) COMO
-        partículas activas en el pool para anticipar cuellos de botella.
-
-        Umbrales calibrados para 60fps estable en escenas de alta densidad:
-          CRISIS (0): >350 enemigos  O  >600 partículas activas
-          MEDIO  (1): >180 enemigos  O  >350 partículas activas
-          ALTO   (2): resto
-        """
         visible    = self.enemies_rendered
         particles  = self.particle_pool._alive_count
 
@@ -220,7 +203,9 @@ class LevelManager:
 
         self._update_gems(dt)
 
-        self.particle_pool.update_and_bake(dt, self.blood_surface)
+        # PARCHE 1: pasar cam_offset para coordenadas de pantalla en el baking
+        cam_off = (self.camera.offset_x, self.camera.offset_y)
+        self.particle_pool.update_and_bake(dt, self.blood_surface, cam_offset=cam_off)
 
         if self._explosion_flash > 0:
             self._explosion_flash -= dt
@@ -228,11 +213,18 @@ class LevelManager:
         if not self.player.dash_active:
             self._ninja_dash_hit_set.clear()
 
+        # PARCHE 1: desplazar blood_surface cuando la cámara se mueve
+        dx = self.camera.offset_x - self._blood_cam_x
+        dy = self.camera.offset_y - self._blood_cam_y
+        if abs(dx) > 0.5 or abs(dy) > 0.5:
+            tmp = self.blood_surface.copy()
+            self.blood_surface.fill((0, 0, 0, 0))
+            self.blood_surface.blit(tmp, (int(dx), int(dy)))
+            self._blood_cam_x = self.camera.offset_x
+            self._blood_cam_y = self.camera.offset_y
+
         self.frame_counter += 1
 
-    # ──────────────────────────────────────────────────────────────────
-    # AURA DE ESPINAS
-    # ──────────────────────────────────────────────────────────────────
     def _update_aura(self, dt):
         player = self.player
         aura_dmg = getattr(player, 'aura_damage', 0.0)
@@ -258,19 +250,9 @@ class LevelManager:
                     self._on_enemy_killed(enemy)
 
     # ──────────────────────────────────────────────────────────────────
-    # DASH NINJA (Artes Oscuras)
+    # DASH NINJA
     # ──────────────────────────────────────────────────────────────────
     def _check_ninja_dash(self):
-        """
-        Mata instantáneamente a enemigos en el radio del dash ninja.
-
-        FIX: Ya no llama create_viscera_explosion() directamente.
-        _on_enemy_killed() gestiona los efectos visuales con throttle
-        automático basado en _kills_this_frame.
-
-        El shake de cámara ahora es proporcional al total de kills del dash
-        en lugar de per-kill (evita spike de shake con 200+ kills).
-        """
         player = self.player
         if not getattr(player, 'ninja_dash', False):
             return
@@ -295,8 +277,6 @@ class LevelManager:
                 self._on_enemy_killed(enemy)
                 ninja_kills += 1
 
-        # Shake proporcional al total de kills del dash este frame
-        # (evita spike de shake si hay 200+ kills simultáneos)
         if ninja_kills > 0:
             shake_amt = min(14.0, 2.0 + ninja_kills * 0.3)
             self.camera.add_shake(shake_amt)
@@ -471,21 +451,6 @@ class LevelManager:
         self.enemy_projectiles = alive
 
     def _on_enemy_killed(self, enemy):
-        """
-        Gestiona score, XP, lifesteal y efectos visuales al matar un enemigo.
-
-        THROTTLE DE PARTÍCULAS:
-        Usa _kills_this_frame para degradar automáticamente el efecto visual
-        cuando muchos enemigos mueren en el mismo frame (p.ej. dash ninja
-        o ráfaga de escopeta sobre una horda compacta):
-
-          kills 1–6  → create_viscera_explosion() (calidad actual)
-          kills 7–16 → create_blood_pool()         (solo charco, sin chunks)
-          kills >16  → sin partículas              (score + gemas únicamente)
-
-        Esto garantiza que un dash sobre 200 enemigos no genere 200×32
-        partículas en un solo frame.
-        """
         self.score += enemy.points * SCORE_MULTIPLIER
         self._kills_this_frame += 1
 
@@ -495,9 +460,8 @@ class LevelManager:
         if k <= _PARTICLE_FULL_KILLS:
             ps.create_viscera_explosion(enemy.x, enemy.y)
         elif k <= _PARTICLE_POOL_KILLS:
-            # Efecto ligero: solo marca la posición con un charco pequeño
             ps.create_blood_pool(enemy.x, enemy.y)
-        # > _PARTICLE_POOL_KILLS kills/frame: sin partículas (score + gemas)
+        # > _PARTICLE_POOL_KILLS kills/frame: sin partículas
 
         self.gems.append(ExperienceGem(enemy.x, enemy.y, enemy.points))
 
@@ -556,17 +520,12 @@ class LevelManager:
                 new_gems.append(gem)
         self.gems = new_gems
 
-    # ──────────────────────────────────────────────────────────────────
-    # RENDER
-    # ──────────────────────────────────────────────────────────────────
     def render_world(self, screen):
         self._render_grid(screen)
 
-        bg_x = max(0, int(-self.camera.offset_x))
-        bg_y = max(0, int(-self.camera.offset_y))
-        from settings import WINDOW_WIDTH, WINDOW_HEIGHT
-        area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
-        screen.blit(self.blood_surface, (0, 0), area=area_rect)
+        # PARCHE 1: blit directo, sin area_rect — la superficie ya es del
+        # tamaño de la ventana y se desplaza con la cámara en update().
+        screen.blit(self.blood_surface, (0, 0))
 
         self.particle_pool.render_all(screen, self.camera, layer='floor')
 
@@ -591,7 +550,6 @@ class LevelManager:
                 enemy.render(screen, cam)
                 self.enemies_rendered += 1
 
-        # Aura visual — antes del jugador
         if self.player:
             self._render_aura(screen)
 
@@ -663,7 +621,6 @@ class LevelManager:
         screen.blit(ring_surf, (cx - ring_r, cy - ring_r))
 
     def _render_grid(self, screen):
-        from settings import WINDOW_WIDTH, WINDOW_HEIGHT
         gs = 100
         ox = self.camera.offset_x
         oy = self.camera.offset_y

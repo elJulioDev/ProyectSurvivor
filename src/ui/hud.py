@@ -1,14 +1,13 @@
 """
 HUD - Rediseñado: jerarquía clara, sin solapamientos, estética pulida
-Layout:
-  - Barra XP + Nivel: franja superior completa
-  - Temporizador: top center, bien separado del nivel
-  - Panel salud + dash: top left
-  - Panel score + enemigos: top right
-  - Arma activa: bottom center
+
+PARCHE 4: _xp_glow_surf pre-allocada en __init__ para evitar crear
+una Surface SRCALPHA nueva cada frame en _render_xp_strip().
+En Android la creación de superficies es ~10× más lenta que en PC.
 """
 
 import pygame, math
+from settings import WINDOW_WIDTH
 
 class Palette:
     BG          = (10, 10, 14)
@@ -57,6 +56,10 @@ class HUD:
         self._time_pulse     = 0.0
         self._weapon_flash   = 0.0
         self._panel_cache = {}
+
+        # PARCHE 4: superficie pre-allocada para el glow de la barra XP.
+        # Evita crear una Surface SRCALPHA nueva en cada frame.
+        self._xp_glow_surf = pygame.Surface((WINDOW_WIDTH, 20), pygame.SRCALPHA)
 
     def render(self, player, wave_time_str, score=0, enemies_alive=0, dt=1.0):
         if not player:
@@ -120,12 +123,11 @@ class HUD:
         if fill_w > 2:
             pygame.draw.rect(self.screen, Palette.XP_FILL, (0, 0, fill_w, STRIP_H))
 
-        # Glow al subir nivel
+        # PARCHE 4: reutilizar superficie pre-allocada en lugar de crear una nueva
         if self._xp_anim > 0:
             glow_alpha = int(self._xp_anim * 200)
-            glow_surf = pygame.Surface((self.W, STRIP_H), pygame.SRCALPHA)
-            glow_surf.fill((*Palette.XP_GLOW, glow_alpha))
-            self.screen.blit(glow_surf, (0, 0))
+            self._xp_glow_surf.fill((*Palette.XP_GLOW, glow_alpha))
+            self.screen.blit(self._xp_glow_surf, (0, 0))
 
         # Borde inferior sutil
         pygame.draw.line(self.screen, Palette.BORDER_LIT,
@@ -150,10 +152,8 @@ class HUD:
         self.screen.blit(lv_surf, (pill_x + pad_x, pill_y + pad_y))
 
     def _render_timer(self, time_str):
-        # Posición: centrado horizontalmente, debajo de la pastilla de nivel
         TIME_Y = 60
 
-        # Leve pulso de opacidad
         alpha_mod = int(220 + math.sin(self._time_pulse) * 30)
         color = (
             min(255, int(Palette.TIME[0] * alpha_mod / 255)),
@@ -161,7 +161,6 @@ class HUD:
             min(255, int(Palette.TIME[2] * alpha_mod / 255)),
         )
 
-        # Sombra
         shadow = self.f_huge.render(time_str, True, (0, 0, 0))
         surf   = self.f_huge.render(time_str, True, color)
 
@@ -182,7 +181,6 @@ class HUD:
         dmg_pct = max(0.0, self._damage_health / player.max_health)
         hp_color = self._get_hp_color(hp_pct)
 
-        # Icono cruz animada
         icon_cx = PANEL_X + 22
         icon_cy = PANEL_Y + 22
 
@@ -199,40 +197,33 @@ class HUD:
                          (icon_cx - arm, icon_cy),
                          (icon_cx + arm, icon_cy), thick)
 
-        # Barra de salud
         BAR_X = PANEL_X + 42
         BAR_Y = PANEL_Y + 12
         BAR_W = PANEL_W - 55
         BAR_H = 20
 
-        # Fondo
         pygame.draw.rect(self.screen, Palette.BG,
                          (BAR_X, BAR_Y, BAR_W, BAR_H), border_radius=4)
 
-        # Barra daño (rojo fantasma)
         dmg_w = int(BAR_W * dmg_pct)
         if dmg_w > 0:
             pygame.draw.rect(self.screen, Palette.HP_SHADOW,
                              (BAR_X, BAR_Y, dmg_w, BAR_H), border_radius=4)
 
-        # Barra vida
         hp_w = int(BAR_W * hp_pct)
         if hp_w > 0:
             pygame.draw.rect(self.screen, hp_color,
                              (BAR_X, BAR_Y, hp_w, BAR_H), border_radius=4)
 
-        # Número de HP
         hp_str = f"{int(player.health)} / {int(player.max_health)}"
         hp_surf = self.f_tiny.render(hp_str, True, Palette.GRAY)
         self.screen.blit(hp_surf,
                          (BAR_X + BAR_W // 2 - hp_surf.get_width() // 2,
                           BAR_Y + 3))
 
-        # Label
         label = self.f_tiny.render("SALUD", True, Palette.DIM)
         self.screen.blit(label, (BAR_X, BAR_Y - 14))
 
-        # Barra dash
         DASH_Y = BAR_Y + BAR_H + 8
 
         dash_pct = 1.0
@@ -270,19 +261,16 @@ class HUD:
         self._draw_panel(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, radius=10,
                          bg=Palette.BG_PANEL, border=Palette.BORDER)
 
-        # Score animado
         score_int = int(self._score_display)
         score_str = f"{score_int:,}".replace(",", ".")
         sc_surf = self.f_large.render(score_str, True, Palette.SCORE)
         sc_x = PANEL_X + PANEL_W - sc_surf.get_width() - 12
         self.screen.blit(sc_surf, (sc_x, PANEL_Y + 8))
 
-        # Separador
         sep_y = PANEL_Y + PANEL_H // 2 + 4
         pygame.draw.line(self.screen, Palette.BORDER,
                          (PANEL_X + 10, sep_y), (PANEL_X + PANEL_W - 10, sep_y), 1)
 
-        # Enemigos
         en_color = Palette.ENEMIES if enemies_alive > 0 else Palette.GRAY
         en_str = f"{enemies_alive} ENEMIGOS"
         en_surf = self.f_small.render(en_str, True, en_color)
@@ -321,19 +309,16 @@ class HUD:
             is_active = (i == player.current_weapon_index)
             sx = start_x + i * (SLOT_W + GAP)
 
-            # Fondo slot
             bg = Palette.BG_PANEL if not is_active else (25, 28, 45)
             border = WEAPON_COLORS.get(wtype, Palette.BORDER) if is_active \
                      else Palette.BORDER
             self._draw_panel(sx, base_y, SLOT_W, SLOT_H, radius=8,
                              bg=bg, border=border, border_w=2 if is_active else 1)
 
-            # Número de tecla
             key_surf = self.f_small.render(str(i + 1), True,
                                            Palette.WHITE if is_active else Palette.DIM)
             self.screen.blit(key_surf, (sx + 6, base_y + 5))
 
-            # Nombre del arma
             wname = WEAPON_NAMES.get(wtype, wtype[:4])
             wn_surf = self.f_tiny.render(wname, True,
                                          WEAPON_COLORS.get(wtype, Palette.GRAY)
@@ -341,7 +326,6 @@ class HUD:
             wx = sx + SLOT_W // 2 - wn_surf.get_width() // 2
             self.screen.blit(wn_surf, (wx, base_y + SLOT_H - 18))
 
-            # Barra de cooldown en el slot activo
             if is_active:
                 cd_pct = 1.0
                 if weapon.cooldown > 0:

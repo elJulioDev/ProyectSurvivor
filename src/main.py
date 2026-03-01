@@ -29,9 +29,6 @@ def main():
 
     virtual_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
 
-    # El clock principal NO limita FPS — cada escena gestiona su propio tick.
-    # GameplayScene usa clock.tick(target_fps) para 60/120/240/ilimitado.
-    # MenuScene y otras usan clock.tick(60) en su update().
     clock = pygame.time.Clock()
     game = Game(virtual_surface)
 
@@ -69,7 +66,6 @@ def main():
 
             game.handle_events(event)
 
-        # Cada escena controla su propio FPS vía clock.tick() en su update().
         game.update()
         game.render()
 
@@ -79,10 +75,6 @@ def main():
             scale_w = current_w / BASE_WIDTH
             scale_h = current_h / BASE_HEIGHT
 
-            # max() → siempre llena toda la pantalla (puede recortar
-            # ligeramente en relaciones de aspecto distintas a 16:9).
-            # min() → letterbox/pillarbox con barras negras (no se recorta nada).
-            # Usamos max() en todos los casos para eliminar bordes negros.
             scale = max(scale_w, scale_h)
 
             new_w = int(BASE_WIDTH  * scale)
@@ -95,15 +87,21 @@ def main():
             needs_rescale = False
 
         screen.fill(BLACK)
-        scaled_surface = pygame.transform.scale(
-            virtual_surface,
-            (int(BASE_WIDTH * game.render_scale),
-             int(BASE_HEIGHT * game.render_scale))
-        )
-        screen.blit(scaled_surface, (game.render_offset_x, game.render_offset_y))
+
+        # PARCHE 5: evitar pygame.transform.scale cuando la resolución coincide.
+        # En Android muchos dispositivos devuelven exactamente 1280×720,
+        # en cuyo caso el scale es innecesario y costoso en software.
+        sw = int(BASE_WIDTH  * game.render_scale)
+        sh = int(BASE_HEIGHT * game.render_scale)
+        if (sw == BASE_WIDTH and sh == BASE_HEIGHT
+                and game.render_offset_x == 0 and game.render_offset_y == 0):
+            # Resolución idéntica — blit directo, sin copia de píxeles
+            screen.blit(virtual_surface, (0, 0))
+        else:
+            scaled_surface = pygame.transform.scale(virtual_surface, (sw, sh))
+            screen.blit(scaled_surface, (game.render_offset_x, game.render_offset_y))
 
         pygame.display.flip()
-        # SIN clock.tick() aquí — el FPS lo controla cada escena individualmente.
 
     pygame.quit()
     sys.exit()

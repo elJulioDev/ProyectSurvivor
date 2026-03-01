@@ -1,27 +1,9 @@
 """
 ObjectPool con sistema de BAKING INMEDIATO de partículas estáticas.
 
-ARQUITECTURA OPTIMIZADA v3:
-─────────────────────────────────────────────────────────────────
-El problema anterior: las partículas estáticas (charcos, sangre detenida)
-ocupaban el pool durante cientos de frames, saturándolo y obligando a
-reducir los conteos visuales.
-
-La solución: update_and_bake() realiza en UN SOLO PASS:
-  1. Actualiza todas las partículas dinámicas (las que se mueven)
-  2. Cuando una partícula líquida se detiene (vel ≈ 0), la HORNEA 
-     instantáneamente al blood_surface permanente y libera su slot.
-
-Resultado:
-  - Partículas estáticas (charcos, drips, sangre detenida): ~1 frame en pool
-  - Partículas dinámicas (mist, chunks, splatter volando): persisten hasta morir
-  - El pool de 1500 slots contiene SOLO partículas en movimiento activo
-  - Permite restaurar conteos visuales completos sin saturar el pool
-
-MEJORAS v2:
-  - ProjectilePool.get(): inicializa prev_x/prev_y al reciclar un proyectil.
-    Necesario para la detección swept de colisiones en Projectile.
-  - _alive_count: evita iterar los 1500 slots cuando el pool está vacío.
+PARCHE 1: update_and_bake() ahora acepta cam_offset=(offset_x, offset_y)
+para convertir coordenadas de mundo a coordenadas de pantalla antes de
+hornear al blood_surface (que ahora es del tamaño de la ventana, no del mundo).
 """
 import pygame
 import math
@@ -49,8 +31,6 @@ class ProjectilePool:
         p = self.pool.pop() if self.pool else Projectile(0, 0, 0)
         p.x          = x
         p.y          = y
-        # Inicializar posición previa = posición actual al reutilizar
-        # (evita colisión swept falsa desde la posición del disparo anterior)
         p.prev_x     = x
         p.prev_y     = y
         p.angle      = angle
@@ -87,21 +67,10 @@ class ProjectilePool:
 
 class ParticlePool:
     """
-    Pool circular de 1500 partículas con baking inmediato de estáticas.
+    Pool circular de partículas con baking inmediato de estáticas.
 
-    Flujo de una partícula de charco (vel=0):
-      frame 0 → creada por create_blood_pool()
-      frame 1 → update_and_bake() la detecta estática → pinta en blood_surface → is_alive=False
-      frame 1+ → slot libre para nuevas partículas
-
-    Flujo de una partícula de splatter (vel > 0):
-      frames 0–N → update_and_bake() la actualiza normalmente
-      frame K → velocidad cae < 0.1 → se hornea → slot libre
-      (total: ~20-40 frames en el pool, luego baked como decal permanente)
-
-    Flujo de un chunk de carne (is_chunk=True):
-      frames 0–200 → update_and_bake() lo actualiza, NUNCA se hornea
-      frame 200 → lifetime agotado → is_alive=False → slot libre
+    PARCHE 1: update_and_bake() recibe cam_offset para calcular la posición
+    de pantalla correcta al hornear en el blood_surface (tamaño ventana).
     """
     def __init__(self, capacity=1500):
         self.capacity   = capacity
@@ -174,8 +143,8 @@ class ParticlePool:
         self._alive_count += 1
         return slot
 
-    # MÉTODO PRINCIPAL: update + baking en un solo pass
-    def update_and_bake(self, dt, blood_surface=None):
+    # PARCHE 1: cam_offset convierte coordenadas de mundo → pantalla para el blit
+    def update_and_bake(self, dt, blood_surface=None, cam_offset=(0, 0)):
         if self._alive_count <= 0:
             self._alive_count = 0
             return
@@ -196,11 +165,10 @@ class ParticlePool:
                     abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1):
                 surf = self.get_cached_surface('circle', p.color, p.size, 200)
                 if surf:
-                    blood_surface.blit(
-                        surf,
-                        (int(p.x - surf.get_width()  // 2),
-                         int(p.y - surf.get_height() // 2))
-                    )
+                    # PARCHE 1: usar coordenadas de PANTALLA (mundo + offset cámara)
+                    bx = int(p.x + cam_offset[0] - surf.get_width()  // 2)
+                    by = int(p.y + cam_offset[1] - surf.get_height() // 2)
+                    blood_surface.blit(surf, (bx, by))
                 p.is_alive = False
                 freed += 1
 
