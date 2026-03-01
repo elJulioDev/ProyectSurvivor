@@ -1,7 +1,5 @@
 """
-Escena Game Over — Rediseñada
-Botones grandes táctiles, sin depender del teclado.
-Estética dark-industrial coherente con el menú principal.
+Escena Game Over — con clock propio para limitarse a 60fps.
 """
 import pygame
 import math
@@ -27,7 +25,6 @@ def _sa(w, h):
 
 
 class _DebrisShard:
-    """Fragmento que cae al inicio de la animación."""
     def __init__(self):
         self.x    = random.uniform(0, WINDOW_WIDTH)
         self.y    = random.uniform(-60, -10)
@@ -56,7 +53,6 @@ class _DebrisShard:
             self.alpha = int(max(0, 240 * (1 - self.life / self.max_life)))
 
 class _StatBadge:
-    """Tarjeta de estadística con animación de entrada."""
     def __init__(self, cx, y, label, value, color=C_WHITE, delay=0):
         self.cx    = cx
         self.y     = y
@@ -64,7 +60,7 @@ class _StatBadge:
         self.value = value
         self.color = color
         self.delay = delay
-        self.shown = 0.0   # 0→1 fade/slide
+        self.shown = 0.0
         self.f_l   = pygame.font.Font(None, 24)
         self.f_v   = pygame.font.Font(None, 52)
 
@@ -83,22 +79,18 @@ class _StatBadge:
         w, h = 230, 80
         x    = self.cx - w // 2
 
-        # Fondo
         bg = _sa(w, h)
         pygame.draw.rect(bg, (*C_PANEL, int(a * 0.85)), (0, 0, w, h), border_radius=8)
         screen.blit(bg, (x, y))
 
-        # Borde
         bd = _sa(w, h)
         pygame.draw.rect(bd, (*C_BORDER, a), (0, 0, w, h), 1, border_radius=8)
         screen.blit(bd, (x, y))
 
-        # Acento izquierdo
         ac = _sa(4, h - 16)
         pygame.draw.rect(ac, (*self.color, a), (0, 0, 4, h - 16), border_radius=2)
         screen.blit(ac, (x + 5, y + 8))
 
-        # Textos
         lsurf = self.f_l.render(self.label, True,
                                  (int(C_GRAY[0]*a/255), int(C_GRAY[1]*a/255),
                                   int(C_GRAY[2]*a/255)))
@@ -110,13 +102,10 @@ class _StatBadge:
         screen.blit(vsurf, (x + 16, y + 30))
 
 class _TapButton:
-    """Botón grande y táctil."""
-
     H      = 62
     RADIUS = 10
 
-    def __init__(self, cx, y, width, label,
-                 accent=C_RED, font_size=34):
+    def __init__(self, cx, y, width, label, accent=C_RED, font_size=34):
         self.rect   = pygame.Rect(0, 0, width, self.H)
         self.rect.centerx = cx
         self.rect.y = y
@@ -126,16 +115,19 @@ class _TapButton:
         self.hover  = False
         self._sc    = 1.0
         self._gl    = 0.0
-        self.visible= 0.0   # 0→1 fade
+        self.visible= 0.0
 
     def update(self, mouse_pos, dt, visible_prog):
         self.visible = min(1.0, visible_prog)
         self.hover   = self.rect.inflate(14, 14).collidepoint(mouse_pos)
         t_sc = 1.015 if self.hover else 1.0
         t_gl = 1.0   if self.hover else 0.0
-        spd  = 0.14 * dt
+        safe_dt = min(dt, 3.0)
+        spd  = 0.14 * safe_dt
         self._sc += (t_sc - self._sc) * spd * 3
         self._gl += (t_gl - self._gl) * spd * 2
+        self._sc = max(0.98, min(1.05, self._sc))
+        self._gl = max(0.0,  min(1.0,  self._gl))
 
     def hit(self, vpos):
         return self.rect.inflate(14, 14).collidepoint(vpos)
@@ -145,49 +137,42 @@ class _TapButton:
         if a < 8:
             return
 
-        w  = int(self.rect.width  * self._sc)
-        h  = int(self.rect.height * self._sc)
+        w  = max(4, int(self.rect.width  * self._sc))
+        h  = max(4, int(self.rect.height * self._sc))
         x  = self.rect.centerx - w // 2
         y  = self.rect.centery - h // 2
 
-        # Sombra
         sh = _sa(w + 16, h + 16)
         pygame.draw.rect(sh, (0, 0, 0, int(a * 0.4)),
                          (0, 0, w + 16, h + 16), border_radius=self.RADIUS + 4)
         screen.blit(sh, (x - 4, y + 6))
 
-        # Glow
         if self._gl > 0.05:
             gs = _sa(w + 40, h + 40)
             pygame.draw.rect(gs, (*self.accent, int(self._gl * 50 * a / 255)),
                              (0, 0, w + 40, h + 40), border_radius=self.RADIUS + 8)
             screen.blit(gs, (x - 20, y - 20))
 
-        # Fondo
         bg = _sa(w, h)
         bc = (
-            min(255, C_PANEL[0] + int(self._gl * 14)),
-            min(255, C_PANEL[1] + int(self._gl * 14)),
-            min(255, C_PANEL[2] + int(self._gl * 24)),
+            max(0, min(255, C_PANEL[0] + int(self._gl * 14))),
+            max(0, min(255, C_PANEL[1] + int(self._gl * 14))),
+            max(0, min(255, C_PANEL[2] + int(self._gl * 24))),
         )
         pygame.draw.rect(bg, (*bc, int(a * 0.88)),
                          (0, 0, w, h), border_radius=self.RADIUS)
         screen.blit(bg, (x, y))
 
-        # Marca lateral
         mk = _sa(5, h - 16)
         pygame.draw.rect(mk, (*self.accent, a), (0, 0, 5, h - 16), border_radius=3)
         screen.blit(mk, (x + 6, y + 8))
 
-        # Borde
         bd = _sa(w, h)
         bd_c = self.accent if self.hover else C_BORDER
         pygame.draw.rect(bd, (*bd_c, a), (0, 0, w, h), 2, border_radius=self.RADIUS)
         screen.blit(bd, (x, y))
 
-        # Texto
         tc = C_WHITE if self.hover else (175, 178, 192)
-        tx_a = int(a * (tc[0] / 255)), int(a * (tc[1] / 255)), int(a * (tc[2] / 255))
         sh2  = self.font.render(self.label, True, (0, 0, 0))
         surf = self.font.render(self.label, True, tc)
         tx = x + w // 2 - surf.get_width() // 2
@@ -202,24 +187,23 @@ class GameOverScene(Scene):
         self.final_score    = final_score
         self.final_time_str = final_time_str
 
-        # Fuentes
+        # Clock propio — limita a 60fps
+        self._clock = pygame.time.Clock()
+
         self.f_huge   = pygame.font.Font(None, 110)
         self.f_medium = pygame.font.Font(None, 42)
         self.f_small  = pygame.font.Font(None, 28)
         self.f_hint   = pygame.font.Font(None, 22)
 
-        # Estado de animación
-        self.phase          = 'enter'   # enter → show_stats → buttons
+        self.phase          = 'enter'
         self.phase_timer    = 0.0
-        self.fade_in        = 0.0       # 0→1 overlay de entrada
+        self.fade_in        = 0.0
         self.title_shown    = 0.0
         self.content_prog   = 0.0
         self.buttons_prog   = 0.0
 
-        # Escombros
         self.shards = [_DebrisShard() for _ in range(18)]
 
-        # Estadísticas (con delay escalonado)
         cx   = WINDOW_WIDTH  // 2
         self.badges = [
             _StatBadge(cx - 125, 300, "PUNTUACIÓN",
@@ -230,7 +214,6 @@ class GameOverScene(Scene):
                        C_CYAN, delay=90),
         ]
 
-        # Botones
         btn_w = 280
         gap   = 24
         b_cx  = WINDOW_WIDTH // 2
@@ -243,7 +226,6 @@ class GameOverScene(Scene):
                                     btn_w, "  MENÚ PRINCIPAL",
                                     accent=(70, 75, 115), font_size=30)
 
-        # Precalcular líneas de cuadrícula
         self._grid_surf = self._build_grid()
 
     def _build_grid(self):
@@ -300,11 +282,12 @@ class GameOverScene(Scene):
         self.next_scene = MenuScene(self.game)
 
     def update(self):
-        dt = 1.0  # escena no tiene su propio clock; se llama ~60 fps desde main
+        # Limitar a 60fps — necesario porque main.py ya no llama clock.tick()
+        dt_ms = self._clock.tick(60)
+        dt = dt_ms / 16.667
 
         self.phase_timer += dt
 
-        # Fase enter: fade negro a fondo
         if self.phase == 'enter':
             self.fade_in = min(1.0, self.phase_timer / 40)
             if self.phase_timer > 25:
@@ -365,7 +348,6 @@ class GameOverScene(Scene):
             self.screen.blit(s, (int(sh.x) - sh.size, int(sh.y) - sh.size))
 
     def _draw_overlay(self):
-        # Faja oscura de fondo para el título
         a   = int(self.fade_in * 210)
         ov  = _sa(WINDOW_WIDTH, 180)
         ov.fill((0, 0, 0, a))
@@ -380,7 +362,6 @@ class GameOverScene(Scene):
         cx = WINDOW_WIDTH // 2
         ty = 132 + sl
 
-        # Chromatic shadow
         sh_r = self.f_huge.render("GAME  OVER", True, (160, 0, 0))
         sh_c = self.f_huge.render("GAME  OVER", True, (0, 100, 110))
         txt  = self.f_huge.render("GAME  OVER", True, C_WHITE)
@@ -391,7 +372,6 @@ class GameOverScene(Scene):
             self.screen.blit(surf_a,
                              (cx - surf.get_width() // 2 + ox, ty + oy))
 
-        # Línea decorativa roja bajo el título
         lw  = int(self.title_shown * 460)
         lhf = _sa(lw + 2, 3)
         pygame.draw.line(lhf, (C_RED[0], C_RED[1], C_RED[2], a),

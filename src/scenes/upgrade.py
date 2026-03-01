@@ -1,5 +1,5 @@
 """
-Escena de Mejoras — Tarjetas con bordes CUADRADOS
+Escena de Mejoras — con clock propio para limitarse a 60fps.
 """
 import pygame
 import random
@@ -67,6 +67,9 @@ class UpgradeScene(Scene):
     def __init__(self, game, gameplay_scene):
         super().__init__(game)
         self.gameplay_scene = gameplay_scene
+
+        # Clock propio — limita a 60fps
+        self._clock = pygame.time.Clock()
 
         self.font_title  = pygame.font.Font(None, 58)
         self.font_sub    = pygame.font.Font(None, 30)
@@ -228,13 +231,17 @@ class UpgradeScene(Scene):
         print(f"✅ Mejora aplicada: [{upg['rarity'].upper()}] {upg['name']}")
 
     def update(self):
-        self.anim_timer += 0.04
+        # Limitar a 60fps — necesario porque main.py ya no llama clock.tick()
+        dt_ms = self._clock.tick(60)
+        dt = dt_ms / 16.667
+
+        self.anim_timer += 0.04 * dt
 
         if self.fade_alpha > 0:
-            self.fade_alpha = max(0, self.fade_alpha - self.fade_speed)
+            self.fade_alpha = max(0, self.fade_alpha - self.fade_speed * dt)
 
         if self.input_cooldown > 0:
-            self.input_cooldown -= 1
+            self.input_cooldown -= dt
 
         mouse_pos = self.game.get_mouse_pos()
         self.hovered_idx = -1
@@ -244,7 +251,8 @@ class UpgradeScene(Scene):
 
         for i in range(len(self.options)):
             target = 1.04 if i == self.hovered_idx else 1.0
-            self.hover_scales[i] += (target - self.hover_scales[i]) * 0.15
+            self.hover_scales[i] += (target - self.hover_scales[i]) * 0.15 * dt
+            self.hover_scales[i] = max(0.98, min(1.06, self.hover_scales[i]))
 
     def render(self):
         self.gameplay_scene.render()
@@ -267,10 +275,8 @@ class UpgradeScene(Scene):
 
         if self.fade_alpha > 0:
             fade_surf = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-            fade_surf.fill((0, 0, 0, self.fade_alpha))
+            fade_surf.fill((0, 0, 0, int(self.fade_alpha)))
             self.screen.blit(fade_surf, (0, 0))
-
-    # Helpers render
 
     def _draw_title(self, level):
         glow_val = int(abs(math.sin(self.anim_timer)) * 40 + 180)
@@ -310,12 +316,10 @@ class UpgradeScene(Scene):
 
         card_rect = pygame.Rect(x, y, cw, ch)
 
-        # Sombra (sin radio)
         shadow_surf = pygame.Surface((cw + 20, ch + 20), pygame.SRCALPHA)
         pygame.draw.rect(shadow_surf, (0, 0, 0, 120), (0, 0, cw + 20, ch + 20))
         self.screen.blit(shadow_surf, (x - 10 + 8, y - 10 + 8))
 
-        # Glow de rareza
         glow_alpha = 80 if is_hovered else 30
         if is_hovered:
             pulse = abs(math.sin(self.anim_timer * 3))
@@ -324,52 +328,40 @@ class UpgradeScene(Scene):
         pygame.draw.rect(glow_surf, (*rc, glow_alpha), (0, 0, cw + 30, ch + 30))
         self.screen.blit(glow_surf, (x - 15, y - 15))
 
-        # Fondo de la tarjeta (cuadrado)
         pygame.draw.rect(self.screen, rbg, card_rect)
-
-        # Franja de color de categoría en la parte superior
         pygame.draw.rect(self.screen, cat_color, (x, y, cw, 5))
 
-        # Borde cuadrado
         border_w = 2 if not is_hovered else 3
         pygame.draw.rect(self.screen, rc, card_rect, border_w)
 
-        # Línea interior de acento (da profundidad sin redondear)
         inner = card_rect.inflate(-6, -6)
         pygame.draw.rect(self.screen, (*rc, 30), inner, 1)
 
-        # Número de tecla (esquina sup-izq)
         num_surf = self.font_pick.render(str(index + 1), True, (60, 65, 75))
         self.screen.blit(num_surf, (x + 10, y + 10))
 
-        # Label rareza (esquina sup-der)
         rlabel = RARITY_LABEL.get(rarity, rarity.upper())
         rl_surf = self.font_rarity.render(rlabel, True, rc)
         self.screen.blit(rl_surf, (x + cw - rl_surf.get_width() - 10, y + 12))
 
-        # Icono categoría
         icon_cx = x + cw // 2
         icon_cy = y + 65
         self._draw_category_icon(icon_cx, icon_cy, cat, cat_color, scale * 22)
 
-        # Label de categoría
         cat_label = CATEGORY_LABEL.get(cat, cat.upper())
         cl_surf = self.font_cat.render(cat_label, True, cat_color)
         self.screen.blit(cl_surf,
                          (x + cw // 2 - cl_surf.get_width() // 2, y + 95))
 
-        # Separador
         sep_y = y + 115
         sep_surf = pygame.Surface((cw - 32, 1), pygame.SRCALPHA)
         sep_surf.fill((*rc, 60))
         self.screen.blit(sep_surf, (x + 16, sep_y))
 
-        # Nombre de la mejora
         name_surf = self.font_name.render(upg['name'], True, (235, 235, 245))
         name_x = x + cw // 2 - name_surf.get_width() // 2
         self.screen.blit(name_surf, (name_x, sep_y + 10))
 
-        # Descripción con word wrap
         self._draw_wrapped_text(
             upg['desc'],
             self.font_desc,
@@ -379,7 +371,6 @@ class UpgradeScene(Scene):
             line_height=20
         )
 
-        # Indicador "ELEGIR" al hacer hover
         if is_hovered:
             pulse = abs(math.sin(self.anim_timer * 4))
             pick_color = (min(255, rc[0]), min(255, rc[1]), min(255, rc[2]))
@@ -390,7 +381,6 @@ class UpgradeScene(Scene):
             btn_bg.fill((*rc, 30))
             self.screen.blit(btn_bg, (px_ - 10, py_ - 3))
             self.screen.blit(pick_surf, (px_, py_))
-            # Línea inferior de acento al hacer hover
             pygame.draw.line(self.screen, rc, (x, y + ch - 1), (x + cw, y + ch - 1), 2)
         else:
             idle_surf = self.font_rarity.render(f"Tecla  {index + 1}", True, (50, 55, 65))

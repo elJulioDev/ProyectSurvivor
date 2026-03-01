@@ -2,6 +2,12 @@
 Menú Principal — Rediseñado
 Estética dark-industrial / zombie survivor.
 Botones grandes y táctiles, animaciones atmosféricas.
+
+FIXES:
+- BigButton.update(): clampa _glow en [0,1] y _scale en [0.95, 1.1]
+  para evitar valores negativos/NaN cuando dt es alto (fps bajo).
+- MenuScene.handle_events(): ya NO actualiza botones (evita doble-tick).
+- MenuScene usa clock.tick(60) para limitarse a 60fps reales.
 """
 import pygame
 import math
@@ -60,7 +66,6 @@ class _Particle:
     @property
     def alpha(self):
         t = self.life / self.max_life
-        # Fade-in / fade-out
         if t < 0.2: return int(t / 0.2 * 160)
         if t > 0.8: return int((1 - t) / 0.2 * 160)
         return 160
@@ -94,20 +99,29 @@ class BigButton:
         self.accent  = accent
         self.font    = pygame.font.Font(None, font_size)
         self.hovered = False
-        self._scale  = 1.0          # escala de hover (animada)
-        self._glow   = 0.0          # brillo extra al hover
+        self._scale  = 1.0
+        self._glow   = 0.0
 
     def update(self, mouse_pos, dt=1.0):
         self.hovered = self.rect.inflate(16, 16).collidepoint(mouse_pos)
         target_scale = 1.015 if self.hovered else 1.0
         target_glow  = 1.0   if self.hovered else 0.0
-        spd = 0.14 * dt
+
+        # Clampear dt para evitar overshoots en fps muy bajos
+        safe_dt = min(dt, 3.0)
+        spd = 0.14 * safe_dt
+
         self._scale += (target_scale - self._scale) * spd * 3
         self._glow  += (target_glow  - self._glow)  * spd * 2
 
+        # Clamp estricto — evita valores negativos/fuera de rango
+        # que causarían colores inválidos en draw()
+        self._scale = max(0.98, min(1.05, self._scale))
+        self._glow  = max(0.0,  min(1.0,  self._glow))
+
     def is_clicked(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            return self.rect.inflate(16, 16).collidepoint(event.pos[0] / 1, event.pos[1] / 1)
+            return self.rect.inflate(16, 16).collidepoint(event.pos[0], event.pos[1])
         return False
 
     def is_clicked_vpos(self, event, vpos):
@@ -119,6 +133,9 @@ class BigButton:
     def draw(self, screen):
         w = int(self.rect.width  * self._scale)
         h = int(self.rect.height * self._scale)
+        # Seguridad: evitar superficies con dimensiones inválidas
+        w = max(4, w)
+        h = max(4, h)
         x = self.rect.centerx - w // 2
         y = self.rect.centery - h // 2
         r = pygame.Rect(x, y, w, h)
@@ -137,13 +154,13 @@ class BigButton:
                              (0, 0, w + 40, h + 40), border_radius=self.RADIUS + 8)
             screen.blit(gs, (x - 20, y - 20))
 
-        # Fondo
+        # Fondo — componentes de color siempre clampeados a [0, 255]
         bg_alpha = 200 if self.hovered else 170
         bg_surf  = _surf_alpha(w, h)
         bg_color = (
-            min(255, C_PANEL[0] + int(self._glow * 14)),
-            min(255, C_PANEL[1] + int(self._glow * 14)),
-            min(255, C_PANEL[2] + int(self._glow * 22)),
+            max(0, min(255, C_PANEL[0] + int(self._glow * 14))),
+            max(0, min(255, C_PANEL[1] + int(self._glow * 14))),
+            max(0, min(255, C_PANEL[2] + int(self._glow * 22))),
         )
         pygame.draw.rect(bg_surf, (*bg_color, bg_alpha),
                          (0, 0, w, h), border_radius=self.RADIUS)
@@ -224,11 +241,8 @@ class MenuScene(Scene):
 
     def handle_events(self, event):
         vpos = self._vpos(event)
-        mouse_pos = self.game.get_mouse_pos()
 
-        self.btn_play.update(mouse_pos)
-        self.btn_exit.update(mouse_pos)
-
+        # Clicks — NO actualizamos botones aquí (se hace en update())
         if self.btn_play.is_clicked_vpos(event, vpos):
             from scenes.gameplay import GameplayScene
             self.next_scene = GameplayScene(self.game)
@@ -254,6 +268,7 @@ class MenuScene(Scene):
         return self.game.get_mouse_pos()
 
     def update(self):
+        # Limitar menú a 60 fps reales
         dt_ms = self.clock.tick(60)
         dt    = dt_ms / 16.667
 
@@ -296,13 +311,7 @@ class MenuScene(Scene):
 
         # Viñeta radial (oscurece bordes)
         vw, vh = WINDOW_WIDTH, WINDOW_HEIGHT
-        vignette = _surf_alpha(vw, vh)
-        for i in range(8):
-            alpha = int(i * 14)
-            margin = i * 28
-            rect = pygame.Rect(margin, margin, vw - margin * 2, vh - margin * 2)
-            pygame.draw.rect(vignette, (0, 0, 0, alpha),
-                             pygame.Rect(0, 0, vw, vh))
+
         # Simplificado: solo blobs oscuros en esquinas
         for corner_x, corner_y in [(0, 0), (vw, 0), (0, vh), (vw, vh)]:
             r = 350

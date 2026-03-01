@@ -12,8 +12,6 @@ def main():
 
     # Configuración de ventana
     if running_on_android:
-        # En Android: pantalla completa nativa, sin cursor, sin borde.
-        # pygame-for-android / SDL2 gestionan la resolución real.
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         fullscreen = True
         pygame.mouse.set_visible(False)
@@ -31,6 +29,9 @@ def main():
 
     virtual_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
 
+    # El clock principal NO limita FPS — cada escena gestiona su propio tick.
+    # GameplayScene usa clock.tick(target_fps) para 60/120/240/ilimitado.
+    # MenuScene y otras usan clock.tick(60) en su update().
     clock = pygame.time.Clock()
     game = Game(virtual_surface)
 
@@ -68,6 +69,7 @@ def main():
 
             game.handle_events(event)
 
+        # Cada escena controla su propio FPS vía clock.tick() en su update().
         game.update()
         game.render()
 
@@ -96,7 +98,7 @@ def main():
         screen.blit(scaled_surface, (game.render_offset_x, game.render_offset_y))
 
         pygame.display.flip()
-        clock.tick(FPS)
+        # SIN clock.tick() aquí — el FPS lo controla cada escena individualmente.
 
     pygame.quit()
     sys.exit()
