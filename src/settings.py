@@ -46,6 +46,8 @@ CROSSHAIR_GAP = 4
 CROSSHAIR_THICKNESS = 2
 CROSSHAIR_DOT_SIZE = 2
 
+MOBILE_CAMERA_ZOOM = 1.6
+
 # SISTEMA DE MEJORAS — Categorías, Rarezas y Stats expandidos
 # type:        'stat' | 'weapon' | 'xp' | 'unlock' | 'unlock_weapon'
 # rarity:      'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'

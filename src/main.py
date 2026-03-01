@@ -78,7 +78,12 @@ def main():
 
             scale_w = current_w / BASE_WIDTH
             scale_h = current_h / BASE_HEIGHT
-            scale   = min(scale_w, scale_h)
+
+            # max() → siempre llena toda la pantalla (puede recortar
+            # ligeramente en relaciones de aspecto distintas a 16:9).
+            # min() → letterbox/pillarbox con barras negras (no se recorta nada).
+            # Usamos max() en todos los casos para eliminar bordes negros.
+            scale = max(scale_w, scale_h)
 
             new_w = int(BASE_WIDTH  * scale)
             new_h = int(BASE_HEIGHT * scale)

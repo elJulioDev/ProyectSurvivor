@@ -50,9 +50,9 @@ class VirtualJoystick:
     El nodo sigue el dedo hasta MAX_TRAVEL píxeles del origen.
     """
 
-    BASE_RADIUS = 72     # Radio del aro exterior
-    KNOB_RADIUS = 28     # Radio del nodo interior
-    MAX_TRAVEL  = 54     # Máxima distancia nodo ↔ origen
+    BASE_RADIUS = 95     # Radio del aro exterior
+    KNOB_RADIUS = 36     # Radio del nodo interior
+    MAX_TRAVEL  = 68     # Máxima distancia nodo ↔ origen
 
     # Paleta
     _C_BASE_IDLE = (255, 255, 255, 18)
@@ -234,16 +234,16 @@ class MobileControls:
     # Coordenadas de referencia (1280×720 virtual)
 
     # Zonas de activación de joysticks
-    _ZONE_MOVE = pygame.Rect(0,   430, 500, 290)
-    _ZONE_AIM  = pygame.Rect(780, 430, 500, 290)
+    _ZONE_MOVE = pygame.Rect(0,   440, 480, 280)
+    _ZONE_AIM  = pygame.Rect(760, 440, 520, 280)
 
     # Posición por defecto (inactivo)
-    _POS_MOVE = (150, 630)
-    _POS_AIM  = (1130, 630)
+    _POS_MOVE  = (155, 600)
+    _POS_AIM   = (1120, 600)
 
     # Botones
-    _POS_DASH  = (960, 548)
-    _POS_PAUSE = (1242, 120)
+    _POS_DASH  = (1215, 445)
+    _POS_PAUSE = (1242, 130)
 
     def __init__(self,
                  screen_w: int = 1280,
@@ -449,17 +449,3 @@ class MobileControls:
         sep = pygame.Surface((1, 80), pygame.SRCALPHA)
         sep.fill((255, 255, 255, 16))
         screen.blit(sep, (self.screen_w // 2, self.screen_h - 110))
-
-        # Etiquetas de zona (muy sutiles)
-        self._render_zone_labels(screen)
-
-    def _render_zone_labels(self, screen: pygame.Surface) -> None:
-        if not hasattr(self, '_zone_font'):
-            self._zone_font = pygame.font.Font(None, 18)
-        pairs = [
-            ("MOVER",  self._POS_MOVE[0], self._POS_MOVE[1] - VirtualJoystick.BASE_RADIUS - 10),
-            ("APUNTAR", self._POS_AIM[0], self._POS_AIM[1] - VirtualJoystick.BASE_RADIUS - 10),
-        ]
-        for txt, tx, ty in pairs:
-            surf = self._zone_font.render(txt, True, (120, 125, 145))
-            screen.blit(surf, (int(tx) - surf.get_width() // 2, int(ty)))

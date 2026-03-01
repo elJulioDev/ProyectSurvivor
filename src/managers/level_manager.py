@@ -21,7 +21,7 @@ from utils.object_pool   import ProjectilePool, ParticlePool
 from utils.spatial_grid  import SpatialGrid
 from managers.spawn_manager  import SpawnManager
 from entities.experience_gem import ExperienceGem
-
+from utils.platform_detect import is_mobile
 
 GEM_MERGE_INTERVAL  = 120
 GEM_MERGE_RADIUS    = 55
@@ -70,6 +70,7 @@ class LevelManager:
         self._active_enemies_buf: list = []
 
     def initialize(self):
+        from settings import MOBILE_CAMERA_ZOOM
         self.player = Player(WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         for weapon in self.player.weapons:
             weapon.set_projectile_pool(self.projectile_pool)
@@ -88,6 +89,9 @@ class LevelManager:
         self._gem_merge_timer     = 0
         self._teleport_timer      = 0
         self._explosion_flash     = 0
+
+        # Zoom de cámara: más cercano en mobile para que todo se vea más grande
+        self.camera.zoom = MOBILE_CAMERA_ZOOM if is_mobile() else 1.0
         self.camera.snap_to(self.player)
 
     def set_target_fps(self, fps: int):
@@ -413,12 +417,9 @@ class LevelManager:
     def render_world(self, screen):
         self._render_grid(screen)
 
-        # Superficie de sangre permanente
-        bg_x = max(0, int(-self.camera.offset_x))
-        bg_y = max(0, int(-self.camera.offset_y))
+        # Superficie de sangre permanente (con soporte de zoom)
         from settings import WINDOW_WIDTH, WINDOW_HEIGHT
-        area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
-        screen.blit(self.blood_surface, (0, 0), area=area_rect)
+        self._blit_blood_surface(screen)
 
         # --- PARTÍCULAS: floor pass ---
         self.particle_pool.render_all(screen, self.camera, layer='floor')
@@ -467,24 +468,59 @@ class LevelManager:
             flash.fill((255, 60, 0, min(80, alpha)))
             screen.blit(flash, (0, 0))
 
+    def _blit_blood_surface(self, screen):
+        """
+        Renderiza la superficie de sangre permanente con soporte de zoom.
+        Con zoom=1 usa la ruta rápida (blit con area).
+        Con zoom>1 extrae la región visible del mundo y la escala a pantalla.
+        """
+        from settings import WINDOW_WIDTH, WINDOW_HEIGHT
+        zoom = self.camera.zoom
+        if zoom == 1.0:
+            bg_x = max(0, int(-self.camera.offset_x))
+            bg_y = max(0, int(-self.camera.offset_y))
+            area_rect = pygame.Rect(bg_x, bg_y, WINDOW_WIDTH, WINDOW_HEIGHT)
+            screen.blit(self.blood_surface, (0, 0), area=area_rect)
+        else:
+            # Región visible del mundo: WINDOW / zoom píxeles
+            cx   = self.camera.center_x
+            cy   = self.camera.center_y
+            vis_w = max(1, int(WINDOW_WIDTH  / zoom))
+            vis_h = max(1, int(WINDOW_HEIGHT / zoom))
+            src_x = max(0, min(WORLD_WIDTH  - vis_w, int(cx - vis_w * 0.5)))
+            src_y = max(0, min(WORLD_HEIGHT - vis_h, int(cy - vis_h * 0.5)))
+            src_rect = pygame.Rect(src_x, src_y, vis_w, vis_h)
+            try:
+                sub    = self.blood_surface.subsurface(src_rect)
+                scaled = pygame.transform.scale(sub, (WINDOW_WIDTH, WINDOW_HEIGHT))
+                screen.blit(scaled, (0, 0))
+            except (ValueError, pygame.error):
+                pass
+
     def _render_grid(self, screen):
         from settings import WINDOW_WIDTH, WINDOW_HEIGHT
-        gs = 100
+        zoom      = self.camera.zoom
+        gs_world  = 100                              # unidades de mundo por celda
+        gs_screen = max(1, int(gs_world * zoom))    # píxeles de pantalla por celda
         ox = self.camera.offset_x
         oy = self.camera.offset_y
-        sx = ox % gs
-        sy = oy % gs
+        # El módulo da la posición del primer trazo visible a la izquierda/arriba
+        sx = int(ox % gs_screen)
+        sy = int(oy % gs_screen)
         gc = (30, 30, 30)
-        for x in range(int(sx), WINDOW_WIDTH, gs):
+        for x in range(sx, WINDOW_WIDTH + gs_screen, gs_screen):
             pygame.draw.line(screen, gc, (x, 0), (x, WINDOW_HEIGHT))
-        for y in range(int(sy), WINDOW_HEIGHT, gs):
+        for y in range(sy, WINDOW_HEIGHT + gs_screen, gs_screen):
             pygame.draw.line(screen, gc, (0, y), (WINDOW_WIDTH, y))
-        # Bordes del mundo
-        for lx in (ox, ox + WORLD_WIDTH):
-            if 0 <= lx <= WINDOW_WIDTH:
+        # Bordes del mundo — su posición en pantalla escala con zoom
+        world_right  = int(ox + WORLD_WIDTH  * zoom)
+        world_bottom = int(oy + WORLD_HEIGHT * zoom)
+        m = 2
+        for lx in (ox, world_right):
+            if -m <= lx <= WINDOW_WIDTH + m:
                 pygame.draw.line(screen, (100, 0, 0), (lx, 0), (lx, WINDOW_HEIGHT), 2)
-        for ly in (oy, oy + WORLD_HEIGHT):
-            if 0 <= ly <= WINDOW_HEIGHT:
+        for ly in (oy, world_bottom):
+            if -m <= ly <= WINDOW_HEIGHT + m:
                 pygame.draw.line(screen, (100, 0, 0), (0, ly), (WINDOW_WIDTH, ly), 2)
 
     def get_debug_info(self):
