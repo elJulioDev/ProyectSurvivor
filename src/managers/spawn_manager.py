@@ -1,7 +1,8 @@
 """
 SpawnManager — Vampire Survivors style
   · Spawn CIRCULAR alrededor del jugador desde TODAS las direcciones
-  · Cap dinámico: de 80 a 800 en ~20 minutos
+  · Cap dinámico: de 200 a 2000+ en ~20 minutos
+  · Spawn en lotes (batch) para simular la densidad de VS
   · Tipos nuevos: exploder, spitter  (aparecen progresivamente)
   · Escalado de vida proporcional al tiempo
   · Reciclaje sin GC (dead_pool)
@@ -13,12 +14,12 @@ from entities.enemy import Enemy
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 
 # Radio de spawn alrededor del jugador (en píxeles de mundo).
-# La diagonal de pantalla es ≈730px → 420-600px queda justo off-screen.
-SPAWN_RADIUS_MIN = 1200
-SPAWN_RADIUS_MAX = 1800
+# Reducido para que los enemigos aparezcan más cerca y en pantalla.
+SPAWN_RADIUS_MIN = 650
+SPAWN_RADIUS_MAX = 1100
 
 # Si un enemigo vivo supera esta distancia del jugador se teletransporta
-TELEPORT_DISTANCE = 1900
+TELEPORT_DISTANCE = 1400
 
 class SpawnManager:
     def __init__(self):
@@ -26,8 +27,8 @@ class SpawnManager:
         self.spawn_timer      = 0
         self.difficulty_level = 1.0
 
-        self.base_spawn_rate = 55       # frames entre spawns al inicio
-        self.min_spawn_rate  = 4        # late game (~15 enemigos/s)
+        self.base_spawn_rate = 20       # frames entre spawns al inicio (era 55)
+        self.min_spawn_rate  = 1        # late game (~60 enemigos/s)
 
         self.dead_pool: list[Enemy] = []
 
@@ -39,24 +40,49 @@ class SpawnManager:
         self.spawn_timer -= dt
 
         minutes = (self.game_time / 60) / 60
-        self.difficulty_level = 1.0 + (minutes * 0.15) # Reducido para que la vida no se dispare tan rápido
+        self.difficulty_level = 1.0 + (minutes * 0.15)
 
-        # Cap dinámico: 80 iniciales + 45 por minuto. 
-        # A los 30 minutos tendrás alrededor de 1430 enemigos en pantalla.
-        max_enemies = int(80 + (minutes * 45))
+        # Cap dinámico agresivo: 200 iniciales + 120 por minuto.
+        # A los 15 min → ~2000 enemigos en pantalla.
+        max_enemies = int(200 + (minutes * 120))
 
         if current_enemy_count >= max_enemies:
-            return None
+            return []
 
-        if self.spawn_timer <= 0:
-            current_rate = max(
-                self.min_spawn_rate,
-                self.base_spawn_rate - (minutes * 1.5) # Baja la tasa de spawn más lento
-            )
-            self.spawn_timer = current_rate
-            return self._spawn_enemy(camera_offset, player_pos)
+        if self.spawn_timer > 0:
+            return []
 
-        return None
+        # Tasa de spawn
+        current_rate = max(
+            self.min_spawn_rate,
+            self.base_spawn_rate - (minutes * 0.9)
+        )
+        self.spawn_timer = current_rate
+
+        # BATCH: cuántos enemigos nacen por tick
+        # Aumenta con el tiempo para simular la densidad de Vampire Survivors
+        room = max_enemies - current_enemy_count
+        if minutes < 2:
+            batch = 1
+        elif minutes < 5:
+            batch = random.randint(1, 2)
+        elif minutes < 10:
+            batch = random.randint(2, 4)
+        elif minutes < 20:
+            batch = random.randint(3, 6)
+        else:
+            batch = random.randint(5, 10)
+
+        batch = min(batch, room)
+        if batch <= 0:
+            return []
+
+        spawned = []
+        for _ in range(batch):
+            e = self._spawn_enemy(camera_offset, player_pos)
+            if e:
+                spawned.append(e)
+        return spawned
 
     def try_teleport_distant_enemies(self, enemies: list,
                                      camera_offset=(0, 0), player_pos=None):
@@ -64,7 +90,6 @@ class SpawnManager:
         Teletransporta enemigos que se alejan demasiado al área de spawn.
         Usa teleport_to() para NO resetear vida ni stats.
         """
-        # CORRECCIÓN: Usar la posición real del jugador si se proporciona
         if player_pos:
             ref_x, ref_y = player_pos
         else:
@@ -110,8 +135,6 @@ class SpawnManager:
     def _get_spawn_position(self, camera_offset=(0, 0), player_pos=None):
         """
         Spawn en circunferencia alrededor del jugador (Vampire Survivors).
-        Si cae en un lugar inválido (muy fuera de los bordes), re-calcula 
-        en lugar de hacer clamping para no meter a los enemigos en la pantalla.
         """
         if player_pos:
             cx, cy = player_pos
@@ -119,7 +142,6 @@ class SpawnManager:
             cx = -camera_offset[0] + WINDOW_WIDTH  / 2
             cy = -camera_offset[1] + WINDOW_HEIGHT / 2
 
-        # Intentar buscar una posición válida hasta 15 veces
         for _ in range(15):
             angle  = random.uniform(0, math.pi * 2)
             radius = random.uniform(SPAWN_RADIUS_MIN, SPAWN_RADIUS_MAX)
@@ -127,13 +149,9 @@ class SpawnManager:
             x = cx + math.cos(angle) * radius
             y = cy + math.sin(angle) * radius
 
-            # Verificamos si la posición está dentro de un rango aceptable del mundo
             if -250 <= x <= WORLD_WIDTH + 250 and -250 <= y <= WORLD_HEIGHT + 250:
                 return x, y
 
-        # Fallback de emergencia si el jugador está en una esquina extrema
-        # y la mala suerte nos hizo fallar 15 veces. Retornamos la posición 
-        # sin importar los límites para garantizar que nazca lejos de la vista.
         angle = random.uniform(0, math.pi * 2)
         radius = random.uniform(SPAWN_RADIUS_MIN, SPAWN_RADIUS_MAX)
         return cx + math.cos(angle) * radius, cy + math.sin(angle) * radius
@@ -174,7 +192,7 @@ class SpawnManager:
             w['tank']     += 5
             w['large']    += 10
             w['small']     = 0
-            
+
         # 25 min -> Horda final pesada
         if minutes > 25:
             w['tank']     += 10

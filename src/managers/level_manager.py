@@ -168,11 +168,11 @@ class LevelManager:
         self._update_enemy_projectiles(dt)
 
         player_pos = self.player.get_position()
-        new_enemy  = self.spawn_manager.update(
+        new_enemies = self.spawn_manager.update(
             dt, len(self.enemies), cam_offset, player_pos=player_pos
         )
-        if new_enemy:
-            self.enemies.append(new_enemy)
+        if new_enemies:
+            self.enemies.extend(new_enemies)
 
         self._teleport_timer += dt
         if self._teleport_timer >= ENEMY_TELEPORT_INTERVAL:

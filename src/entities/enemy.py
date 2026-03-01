@@ -6,6 +6,10 @@ Enemy optimizado:
   → reduce vecinos procesados de ~100 a ~20 en media.
 - Referencias locales en hot-paths para evitar LOAD_ATTR repetidos.
 - update_ai() usa math rápido con early-exit.
+
+CAMBIOS:
+  · Exploder: size_mult 0.8→1.4, speed_mult 2.1→0.75  (más grande y lento)
+  · Tank: special=None, sin proyectiles de roca
 """
 import pygame
 import math
@@ -22,7 +26,6 @@ _GLOW_CACHE: dict = {}
 
 def _get_glow_surface(radius: int, alpha: int) -> pygame.Surface:
     """Crea o reutiliza una superficie de glow circular."""
-    # Bucketizamos radio (5px) y alpha (15 pasos) para reducir entradas
     rb = (radius + 4) // 5 * 5
     ab = max(0, min(255, (alpha + 7) // 15 * 15))
     key = (rb, ab)
@@ -55,10 +58,12 @@ class Enemy:
         'tank': {
             'size_mult': 2.2,  'health': 700, 'speed_mult': 0.38, 'damage': 30,
             'color': (45, 65, 30),    'points': 60,
-            'special': 'rock', 'special_cooldown': 420,
+            # NERF: los tanks ya no lanzan proyectiles de roca
+            'special': None, 'special_cooldown': 0,
         },
         'exploder': {
-            'size_mult': 0.8,  'health': 50,  'speed_mult': 2.1,  'damage': 0,
+            # NERF: más grande (0.8→1.4) y más lento (2.1→0.75)
+            'size_mult': 1.4,  'health': 70,  'speed_mult': 0.75, 'damage': 0,
             'color': (255, 80, 20),   'points': 22,
             'special': 'explode', 'special_cooldown': 0,
         },
@@ -199,7 +204,6 @@ class Enemy:
         if not self.is_alive:
             return
 
-        # Referencias locales para evitar LOAD_ATTR
         ex, ey = self.x, self.y
         px, py = player_pos
         dx = px - ex
@@ -233,8 +237,7 @@ class Enemy:
                 if dist_sq > attack_range_sq else 0.0
             )
 
-        # Separación — SOLO celda actual (get_cell vs get_nearby radius=1)
-        # En densidad alta reduce chequeos de ~100+ a ~15-25 vecinos.
+        # Separación — solo celda actual
         push_x = push_y = 0.0
         if spatial_grid:
             neighbors = spatial_grid.get_cell(ex, ey)
@@ -301,18 +304,6 @@ class Enemy:
                 'damage': 14, 'lifetime': 175,
                 'color': (60, 230, 20), 'radius': 8,
                 'proj_type': 'acid',
-            }
-
-        elif self.special == 'rock' and dist_sq < 700 ** 2:
-            self.special_cooldown_timer = self.special_cooldown_max
-            wobble = random.uniform(-0.18, 0.18)
-            return {
-                'type': 'projectile',
-                'x': self.x, 'y': self.y,
-                'angle': angle + wobble, 'speed': 5.8,
-                'damage': 40, 'lifetime': 145,
-                'color': (165, 145, 110), 'radius': 14,
-                'proj_type': 'rock',
             }
 
         self.special_cooldown_timer = self.special_cooldown_max
@@ -406,7 +397,7 @@ class Enemy:
         cx_s = sx + ht2
         cy_s = sy + ht2
 
-        # Glow del Exploder — usa caché (sin Surface() nueva)
+        # Glow del Exploder — usa caché
         cl = self.charge_level
         if self.special == 'explode' and cl > 0.05:
             gr = int(self.hitbox_total * 0.6 + cl * 20)
