@@ -1,23 +1,23 @@
 """
-Escena de Gameplay.
-La lógica del juego vive en LevelManager.
-GameplayScene maneja UI, input y transiciones.
-La pausa se delega a PauseScene (scenes/pause.py).
-En Android los controles táctiles se activan automáticamente.
+GameplayScene optimizado:
+- TARGET_FPS configurable: 60 / 120 / 240 / 0 (sin límite).
+- dt siempre normalizado a unidades de 60fps (1.0 = 1 frame a 60fps).
+- LevelManager.set_target_fps() llamado al iniciar para escalar intervalos.
+- F6: ciclo entre 60 / 120 / 240 / 0fps en tiempo real.
+- Cruce de delta-time máximo reducido a 2.5 para evitar micro-freezes.
 """
 import pygame
 import math
-from scenes.scene import Scene
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE
-from managers.level_manager import LevelManager
-from ui.hud import HUD
+from scenes.scene   import Scene
+from settings       import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE
+from managers.level_manager  import LevelManager
+from ui.hud          import HUD
 from ui.mobile_controls import MobileControls
 
+# FPS objetivo por defecto — cambiar aquí o con F6 en juego
+DEFAULT_TARGET_FPS = 60
+
 def _detect_mobile() -> bool:
-    """
-    Comprueba si el juego corre en una plataforma móvil (Android).
-    Devuelve True para activar los controles táctiles desde el inicio.
-    """
     try:
         from utils.platform_detect import is_mobile
         return is_mobile()
@@ -32,28 +32,31 @@ def _detect_mobile() -> bool:
             pass
         return False
 
+
 class GameplayScene(Scene):
     def __init__(self, game):
         super().__init__(game)
         self.level      = LevelManager()
         self.hud        = HUD(self.screen)
         self.clock      = pygame.time.Clock()
+
+        self.target_fps = DEFAULT_TARGET_FPS   # 0 = uncapped
         self.dt         = 1.0
-        self.target_fps = 60
+        self._dt_norm   = 1000.0 / 60.0        # ms por "frame lógico" (fijo a 60)
 
         self.show_debug      = False
         self.crosshair_scale = 1.0
         self.last_pulse_time = 0
 
-        # Controles móviles — se activan automáticamente en Android
         self.mobile = MobileControls(WINDOW_WIDTH, WINDOW_HEIGHT)
         if _detect_mobile():
             self.mobile.enabled = True
             print("[Platform] Android detectado — controles táctiles activados.")
 
     def on_enter(self):
-        pygame.mouse.set_visible(self.mobile.enabled)
+        pygame.mouse.set_visible(not self.mobile.enabled)
         self.level.initialize()
+        self.level.set_target_fps(self.target_fps if self.target_fps > 0 else 60)
         self.show_debug      = False
         self.crosshair_scale = 1.0
 
@@ -63,17 +66,24 @@ class GameplayScene(Scene):
         pygame.mouse.set_visible(True)
 
     def handle_events(self, event):
-        # Toggle modo móvil (solo útil en PC para debug)
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F5:
             self.mobile.enabled = not self.mobile.enabled
-            estado = "ACTIVADO" if self.mobile.enabled else "desactivado"
-            print(f"[DEBUG] Modo móvil: {estado}")
+            print(f"[DEBUG] Modo móvil: {'ON' if self.mobile.enabled else 'OFF'}")
             pygame.mouse.set_visible(not self.mobile.enabled)
+            return
+
+        # F6: ciclo de FPS objetivo
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F6:
+            fps_cycle = [60, 120, 240, 0]
+            idx = fps_cycle.index(self.target_fps) if self.target_fps in fps_cycle else 0
+            self.target_fps = fps_cycle[(idx + 1) % len(fps_cycle)]
+            fps_label = str(self.target_fps) if self.target_fps > 0 else "ILIMITADO"
+            print(f"[DEBUG] FPS objetivo: {fps_label}")
+            self.level.set_target_fps(self.target_fps if self.target_fps > 0 else 60)
             return
 
         vpos = self._vpos_from_event(event)
 
-        # Tap en slot de arma (móvil)
         if self.mobile.enabled and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             slot_idx = self.mobile.check_weapon_slot_tap(vpos[0], vpos[1],
                                                           self.level.player)
@@ -107,9 +117,18 @@ class GameplayScene(Scene):
         self.game.current_scene = PauseScene(self.game, self)
 
     def update(self):
-        raw_dt  = self.clock.tick(self.target_fps) / (1000.0 / self.target_fps)
-        self.dt = min(raw_dt, 3.0)
+        # --- DELTA TIME ---
+        # clock.tick(0) = sin límite, retorna ms reales desde el último tick.
+        # Normalizamos SIEMPRE a unidades de "frame a 60fps":
+        #   dt=1.0  → 60fps  (16.67ms)
+        #   dt=0.5  → 120fps (8.33ms)
+        #   dt=0.25 → 240fps (4.17ms)
+        #   dt=2.0  → 30fps  (33.33ms)
+        elapsed_ms = self.clock.tick(self.target_fps)
+        raw_dt     = elapsed_ms / self._dt_norm
+        self.dt    = min(raw_dt, 2.5)   # Clamp: evita spike >2.5× en freezes
 
+        # Level-up
         if self.level.player and self.level.player.pending_level_ups > 0:
             self.level.player.pending_level_ups -= 1
             from scenes.upgrade import UpgradeScene
@@ -178,59 +197,48 @@ class GameplayScene(Scene):
     def _update_crosshair(self, mouse_pressed):
         if not self.level.player:
             return
-        player_shot_time = self.level.player.last_shot_time
-        if player_shot_time != self.last_pulse_time:
-            current_weapon  = self.level.player.weapons[
-                self.level.player.current_weapon_index]
-            pulse_intensity = 0.3 + (current_weapon.shake_amount * 0.15)
-            self.crosshair_scale += pulse_intensity
-            self.last_pulse_time  = player_shot_time
-        if self.crosshair_scale > 4.0:
-            self.crosshair_scale = 4.0
+        shot_t = self.level.player.last_shot_time
+        if shot_t != self.last_pulse_time:
+            w = self.level.player.weapons[self.level.player.current_weapon_index]
+            self.crosshair_scale += 0.3 + w.shake_amount * 0.15
+            self.last_pulse_time  = shot_t
+        self.crosshair_scale = min(self.crosshair_scale, 4.0)
         self.crosshair_scale += (1.0 - self.crosshair_scale) * 0.08 * self.dt
 
     def _render_crosshair(self):
         mx, my = self.game.get_mouse_pos()
         from settings import (CROSSHAIR_COLOR, CROSSHAIR_SIZE,
-                              CROSSHAIR_GAP, CROSSHAIR_THICKNESS, CROSSHAIR_DOT_SIZE)
-        cur_gap  = CROSSHAIR_GAP  * self.crosshair_scale
-        cur_size = CROSSHAIR_SIZE * self.crosshair_scale
-        dot_rect = pygame.Rect(0, 0, CROSSHAIR_DOT_SIZE, CROSSHAIR_DOT_SIZE)
-        dot_rect.center = (mx, my)
-        pygame.draw.rect(self.screen, CROSSHAIR_COLOR, dot_rect)
-        pygame.draw.line(self.screen, CROSSHAIR_COLOR,
-                         (mx, my - cur_gap - cur_size),
-                         (mx, my - cur_gap), CROSSHAIR_THICKNESS)
-        pygame.draw.line(self.screen, CROSSHAIR_COLOR,
-                         (mx, my + cur_gap),
-                         (mx, my + cur_gap + cur_size), CROSSHAIR_THICKNESS)
-        pygame.draw.line(self.screen, CROSSHAIR_COLOR,
-                         (mx - cur_gap - cur_size, my),
-                         (mx - cur_gap, my), CROSSHAIR_THICKNESS)
-        pygame.draw.line(self.screen, CROSSHAIR_COLOR,
-                         (mx + cur_gap, my),
-                         (mx + cur_gap + cur_size, my), CROSSHAIR_THICKNESS)
+                               CROSSHAIR_GAP, CROSSHAIR_THICKNESS, CROSSHAIR_DOT_SIZE)
+        g  = CROSSHAIR_GAP  * self.crosshair_scale
+        sz = CROSSHAIR_SIZE * self.crosshair_scale
+        dr = pygame.Rect(0, 0, CROSSHAIR_DOT_SIZE, CROSSHAIR_DOT_SIZE)
+        dr.center = (mx, my)
+        pygame.draw.rect(self.screen, CROSSHAIR_COLOR, dr)
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, (mx, my - g - sz), (mx, my - g),      CROSSHAIR_THICKNESS)
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, (mx, my + g),      (mx, my + g + sz), CROSSHAIR_THICKNESS)
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, (mx - g - sz, my), (mx - g, my),      CROSSHAIR_THICKNESS)
+        pygame.draw.line(self.screen, CROSSHAIR_COLOR, (mx + g, my),      (mx + g + sz, my), CROSSHAIR_THICKNESS)
 
     def _render_debug_info(self):
         font  = pygame.font.Font(None, 24)
         fps   = self.clock.get_fps()
-        dt_ms = self.dt * (1000.0 / self.target_fps)
+        dt_ms = self.dt * self._dt_norm
         d     = self.level.get_debug_info()
-        mobile_str = "ACTIVADO  [F5 desactiva]" if self.mobile.enabled \
-                     else "desactivado  [F5 activa]"
-        debug_texts = [
-            f"FPS: {fps:.1f} | DeltaTime: {dt_ms:.1f}ms",
+        fps_lbl = f"{self.target_fps}fps" if self.target_fps > 0 else "ILIMITADO"
+        mobile_str = "ON [F5 desact.]" if self.mobile.enabled else "OFF [F5 act.]"
+        texts = [
+            f"FPS real: {fps:.1f}  |  DeltaTime: {dt_ms:.2f}ms  |  Objetivo: {fps_lbl} [F6 ciclo]",
             f"Enemigos vivos: {d['enemies_total']} (Visibles: {d['enemies_rendered']})  |  Dead pool: {d['dead_pool_size']}",
-            f"Proyectiles: {d['projectiles']}  |  Enemigo: {d['enemy_projectiles']}",
-            f"Partículas: {d['particles_active']} (Visibles: {d['particles_rendered']}) / {d['particles_capacity']}",
+            f"Proyectiles: {d['projectiles']}  |  Enemi: {d['enemy_projectiles']}",
+            f"Partículas: {d['particles_active']} (render: {d['particles_rendered']}) / {d['particles_capacity']}",
             f"Gemas XP: {d['gems_count']}",
             f"Móvil: {mobile_str}",
-            f"X: Toggle Debug",
+            f"[X] Toggle Debug",
         ]
         y = 110
-        for text in debug_texts:
-            shadow = font.render(text, True, (0, 0, 0))
-            self.screen.blit(shadow, (11, y + 1))
-            surf = font.render(text, True, (0, 255, 0))
-            self.screen.blit(surf,   (10, y))
+        for text in texts:
+            sh = font.render(text, True, (0, 0, 0))
+            sf = font.render(text, True, (0, 255, 0))
+            self.screen.blit(sh, (11, y + 1))
+            self.screen.blit(sf, (10, y))
             y += 25

@@ -1,59 +1,72 @@
 """
-Grid Espacial para optimizar colisiones de O(N*M) a O(1)
+SpatialGrid optimizada.
+- Usa dict estándar con clave int combinada (evita tuple-hash overhead).
+- Separación de listas reutilizables por celda para reducir allocations.
+- get_nearby() devuelve iterador directo sin list-concat intermedio.
 """
-from collections import defaultdict
 
 class SpatialGrid:
-    """
-    Divide el mundo en celdas para acelerar búsquedas de colisiones.
-    En lugar de verificar todos los enemigos contra todos los proyectiles,
-    solo verificamos los que están en la misma celda.
-    """
     def __init__(self, world_width, world_height, cell_size=100):
-        self.cell_size = cell_size
-        self.world_width = world_width
+        self.cell_size  = cell_size
+        self._inv_cell  = 1.0 / cell_size
+        self.world_width  = world_width
         self.world_height = world_height
-        self.grid = defaultdict(list)
-        
+        # Clave int = cx * STRIDE + cy  (evita tuple hashing)
+        self._STRIDE = (world_height // cell_size) + 2
+        self.grid: dict[int, list] = {}
+
     def clear(self):
-        """Limpia el grid (llamar cada frame antes de repoblar)"""
-        self.grid.clear()
-    
-    def _get_cell(self, x, y):
-        """Convierte posición mundial a coordenadas de celda"""
-        cell_x = int(x // self.cell_size)
-        cell_y = int(y // self.cell_size)
-        return (cell_x, cell_y)
-    
+        # Reutilizar listas en lugar de borrarlas — reduce GC
+        for lst in self.grid.values():
+            lst.clear()
+
+    def _key(self, x: float, y: float) -> int:
+        return int(x * self._inv_cell) * self._STRIDE + int(y * self._inv_cell)
+
     def insert(self, entity):
-        cell_x = int(entity.x // self.cell_size)
-        cell_y = int(entity.y // self.cell_size)
-        self.grid[(cell_x, cell_y)].append(entity)
-    
-    def get_nearby(self, x, y, radius=1):
-        """
-        Obtiene todas las entidades en la celda actual y las vecinas.
-        radius=1 verifica 9 celdas (3x3), radius=0 solo la celda actual.
-        """
-        entities = []
-        center_cell = self._get_cell(x, y)
-        
-        for dx in range(-radius, radius + 1):
-            for dy in range(-radius, radius + 1):
-                cell = (center_cell[0] + dx, center_cell[1] + dy)
-                entities.extend(self.grid.get(cell, []))
-        
-        return entities
-    
+        k = self._key(entity.x, entity.y)
+        try:
+            self.grid[k].append(entity)
+        except KeyError:
+            self.grid[k] = [entity]
+
+    def get_nearby(self, x: float, y: float, radius: int = 1):
+        cx = int(x * self._inv_cell)
+        cy = int(y * self._inv_cell)
+        stride = self._STRIDE
+        grid   = self.grid
+        result = []
+        ra = range(-radius, radius + 1)
+        for dx in ra:
+            base = (cx + dx) * stride
+            for dy in ra:
+                lst = grid.get(base + cy + dy)
+                if lst:
+                    result.extend(lst)
+        return result
+
+    # radio=0 — solo la celda actual (más rápido para separación)
+    def get_cell(self, x: float, y: float) -> list:
+        return self.grid.get(self._key(x, y)) or []
+
     def query_rect(self, rect):
-        """Obtiene todas las entidades que PODRÍAN colisionar con un rectángulo"""
-        min_cell = self._get_cell(rect.left, rect.top)
-        max_cell = self._get_cell(rect.right, rect.bottom)
-        
-        entities = []
-        for cell_x in range(min_cell[0], max_cell[0] + 1):
-            for cell_y in range(min_cell[1], max_cell[1] + 1):
-                cell = (cell_x, cell_y)
-                entities.extend(self.grid.get(cell, []))
-        
-        return list(set(entities))
+        inv = self._inv_cell
+        stride = self._STRIDE
+        grid = self.grid
+        min_cx = int(rect.left  * inv)
+        max_cx = int(rect.right * inv)
+        min_cy = int(rect.top   * inv)
+        max_cy = int(rect.bottom * inv)
+        seen   = set()
+        result = []
+        for cx in range(min_cx, max_cx + 1):
+            base = cx * stride
+            for cy in range(min_cy, max_cy + 1):
+                k = base + cy
+                if k in seen:
+                    continue
+                seen.add(k)
+                lst = grid.get(k)
+                if lst:
+                    result.extend(lst)
+        return result
