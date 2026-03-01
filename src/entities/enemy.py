@@ -2,14 +2,12 @@
 Enemy optimizado:
 - Glow del Exploder: caché de superficies por (radius_bucket, alpha_bucket)
   → elimina 1 Surface() allocation por exploder por frame.
-- AI de separación: usa get_cell() (radio 0) en lugar de get_nearby(radius=1)
-  → reduce vecinos procesados de ~100 a ~20 en media.
-- Referencias locales en hot-paths para evitar LOAD_ATTR repetidos.
-- update_ai() usa math rápido con early-exit.
-
-CAMBIOS:
-  · Exploder: size_mult 0.8→1.4, speed_mult 2.1→0.75  (más grande y lento)
-  · Tank: special=None, sin proyectiles de roca
+- AI anti-clustering mejorada:
+    · Carril determinista por enemigo (offset lateral único fijo desde spawn)
+    · Separación cuadrática con radio ampliado (4x radio)
+    · Predicción del jugador (apuntan a posición futura, no actual)
+- Tank: special=None, sin proyectiles de roca
+- Exploder: size_mult 0.8→1.4, speed_mult 2.1→0.75 (más grande y lento)
 """
 import pygame
 import math
@@ -58,7 +56,6 @@ class Enemy:
         'tank': {
             'size_mult': 2.2,  'health': 700, 'speed_mult': 0.38, 'damage': 30,
             'color': (45, 65, 30),    'points': 60,
-            # NERF: los tanks ya no lanzan proyectiles de roca
             'special': None, 'special_cooldown': 0,
         },
         'exploder': {
@@ -125,6 +122,11 @@ class Enemy:
 
         self.charge_level = 0.0
 
+        # Carril determinista: valor en [-1, 1] único por instancia.
+        # Basado en la posición de spawn → cada enemigo tiene su propio
+        # "carril" lateral de aproximación, creando patrón en abanico.
+        self._lane = math.sin(x * 0.0071 + y * 0.0053)
+
     # ------------------------------------------------------------------
     def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None, health_mult=1.0):
         if enemy_type and enemy_type != self.enemy_type:
@@ -168,12 +170,17 @@ class Enemy:
         self.attack_cooldown = 0
         self.charge_level = 0.0
 
+        # Recalcular carril con nueva posición de spawn
+        self._lane = math.sin(x * 0.0071 + y * 0.0053)
+
     def teleport_to(self, x, y):
         self.x = x
         self.y = y
         self.rect.center = (int(x), int(y))
         self.vx = self.vy = 0.0
         self.knockback_x = self.knockback_y = 0.0
+        # Nuevo carril al teletransportarse
+        self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     def _get_cached_sprite(self, size, total_size, color):
         key = (size, total_size, color)
@@ -200,14 +207,43 @@ class Enemy:
 
         return SPRITE_CACHE[key]
 
-    def update_ai(self, player_pos, spatial_grid):
+    def update_ai(self, player_pos, spatial_grid, player_vel=None):
+        """
+        IA anti-clustering con tres mecanismos combinados:
+
+        1. PREDICCIÓN DEL JUGADOR
+           Cada enemigo apunta a donde ESTARÁ el jugador en unos frames,
+           no donde está ahora. Enemigos de distintos ángulos predicen
+           posiciones levemente distintas → se dispersan sin lógica extra.
+
+        2. CARRIL DETERMINISTA (_lane)
+           Cada enemigo tiene un offset lateral fijo [-1..1] calculado
+           desde su posición de spawn. Todos los 'lane=+0.5' van por un
+           lado, los 'lane=-0.5' por el otro → patrón en abanico natural.
+
+        3. SEPARACIÓN CUADRÁTICA AMPLIADA
+           Radio = 4× el radio del enemigo. Fuerza ∝ overlap².
+           Suave cuando están lejos, muy agresiva cuando se tocan.
+        """
         if not self.is_alive:
             return
 
         ex, ey = self.x, self.y
         px, py = player_pos
-        dx = px - ex
-        dy = py - ey
+
+        # --- 1. PREDICCIÓN ---
+        if player_vel is not None:
+            pvx, pvy = player_vel
+            # Tiempo de predicción: proporcional a la distancia, limitado
+            raw_dist = math.sqrt((px - ex)**2 + (py - ey)**2)
+            predict_t = min(18.0, raw_dist / max(1.0, self.base_speed * 2.5))
+            target_x = px + pvx * predict_t * 0.55
+            target_y = py + pvy * predict_t * 0.55
+        else:
+            target_x, target_y = px, py
+
+        dx = target_x - ex
+        dy = target_y - ey
         dist_sq = dx * dx + dy * dy
         if dist_sq < 0.0001:
             dist_sq = 0.0001
@@ -216,17 +252,21 @@ class Enemy:
         dir_x = dx * inv_dist
         dir_y = dy * inv_dist
 
+        # Distancia real al jugador para lógica de ataque/rango
+        real_dist_sq = (px - ex)**2 + (py - ey)**2
+
         special = self.special
 
-        # Spitter: mantiene distancia preferida
         if special == 'spit':
             preferred = 270.0
             pref_near = preferred * 0.6
             pref_far  = preferred * 1.5
-            if dist < pref_near:
-                dir_x, dir_y = -dir_x, -dir_y
+            real_dist = math.sqrt(real_dist_sq) if real_dist_sq > 0.0001 else 0.001
+            if real_dist < pref_near:
+                dir_x = -(px - ex) / max(real_dist, 0.001)
+                dir_y = -(py - ey) / max(real_dist, 0.001)
                 current_move_speed = self.base_speed * self.speed_variance * 0.9
-            elif dist > pref_far:
+            elif real_dist > pref_far:
                 current_move_speed = self.base_speed * self.speed_variance
             else:
                 current_move_speed = 0.0
@@ -234,16 +274,21 @@ class Enemy:
             attack_range_sq = (self.size * 0.6 + 10) ** 2
             current_move_speed = (
                 self.base_speed * self.speed_variance
-                if dist_sq > attack_range_sq else 0.0
+                if real_dist_sq > attack_range_sq else 0.0
             )
 
-        # Separación — solo celda actual
+        # --- 2. SEPARACIÓN CUADRÁTICA AMPLIADA ---
+        # ANTI-JITTER: tres medidas combinadas:
+        #   a) Fuerza reducida a 0.18 (era 0.28) → menos overshooting por par
+        #   b) Push dividido por sqrt(count) → 16 vecinos no acumulan 16× fuerza
+        #   c) Cap final del push → imposible que la suma supere 1.2× base_speed
         push_x = push_y = 0.0
         if spatial_grid:
-            neighbors = spatial_grid.get_cell(ex, ey)
-            cr_sq = (self.radius * 2.0) ** 2
+            neighbors = spatial_grid.get_nearby(ex, ey, radius=1)
+            sep_radius = self.radius * 4.0
+            cr_sq = sep_radius * sep_radius
             count = 0
-            max_n = 10
+            max_n = 20
 
             for other in neighbors:
                 if other is self or not other.is_alive:
@@ -254,15 +299,53 @@ class Enemy:
                 ody = ey - other.y
                 odist_sq = odx * odx + ody * ody
                 if 0 < odist_sq < cr_sq:
-                    inv_od = 1.0 / math.sqrt(odist_sq)
-                    overlap = self.radius * 2.0 - odist_sq * inv_od
-                    ps = overlap * 0.045
+                    odist = math.sqrt(odist_sq)
+                    inv_od = 1.0 / odist
+                    overlap = sep_radius - odist
+                    # Coeficiente reducido: 0.18 en lugar de 0.28
+                    ps = overlap * (overlap / sep_radius) * 0.18
                     push_x += odx * inv_od * ps
                     push_y += ody * inv_od * ps
                     count += 1
 
-        self.vx = dir_x * current_move_speed + push_x
-        self.vy = dir_y * current_move_speed + push_y
+            # b) Escalar por 1/√count: evita que muchos vecinos acumulen
+            #    fuerza explosiva — con 16 vecinos la fuerza se divide por 4
+            if count > 1:
+                inv_sqrt = 1.0 / math.sqrt(count)
+                push_x *= inv_sqrt
+                push_y *= inv_sqrt
+
+            # c) Cap duro: el push nunca supera 1.2× la velocidad base
+            push_sq = push_x * push_x + push_y * push_y
+            max_push = self.base_speed * 1.2
+            if push_sq > max_push * max_push:
+                inv_pm = max_push / math.sqrt(push_sq)
+                push_x *= inv_pm
+                push_y *= inv_pm
+
+        # --- 3. CARRIL DETERMINISTA ---
+        # Vector perpendicular a la dirección de movimiento
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # _lane ∈ [-1, 1]: offset lateral fijo, único por enemigo.
+        # Produce distribución en abanico: izquierda, centro, derecha.
+        # Escala con la velocidad para que el efecto sea proporcional.
+        lateral_strength = 0.38 * current_move_speed
+        lane_vx = perp_x * self._lane * lateral_strength
+        lane_vy = perp_y * self._lane * lateral_strength
+
+        # --- ANTI-JITTER: lerp de velocidad ---
+        # En lugar de asignar vx/vy directamente (causa oscilación inmediata),
+        # interpolamos al 40% hacia el objetivo cada frame.
+        # Resultado: la velocidad no puede cambiar de dirección de un frame
+        # al siguiente → el temblor desaparece aunque haya muchos vecinos.
+        target_vx = dir_x * current_move_speed + push_x + lane_vx
+        target_vy = dir_y * current_move_speed + push_y + lane_vy
+
+        lerp = 0.40
+        self.vx = self.vx * (1.0 - lerp) + target_vx * lerp
+        self.vy = self.vy * (1.0 - lerp) + target_vy * lerp
 
     def update_special(self, player_pos, dt=1.0):
         if not self.is_alive or not self.special:

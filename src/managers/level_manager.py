@@ -239,6 +239,7 @@ class LevelManager:
 
         spawn_add = self.spawn_manager.add_to_dead_pool
         on_killed = self._on_enemy_killed
+        player_vel = (self.player.vel_x, self.player.vel_y)
 
         for i, enemy in enumerate(self.enemies):
             if not enemy.is_alive:
@@ -246,7 +247,7 @@ class LevelManager:
                 continue
 
             if i % interval == current_batch:
-                enemy.update_ai(player_pos, sg)
+                enemy.update_ai(player_pos, sg, player_vel=player_vel)
 
             enemy.update_physics(dt)
             enemy.update(ps, dt)

@@ -19,7 +19,7 @@ SPAWN_RADIUS_MIN = 650
 SPAWN_RADIUS_MAX = 1100
 
 # Si un enemigo vivo supera esta distancia del jugador se teletransporta
-TELEPORT_DISTANCE = 1400
+TELEPORT_DISTANCE = 1200
 
 class SpawnManager:
     def __init__(self):
