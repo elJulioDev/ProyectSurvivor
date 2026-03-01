@@ -143,8 +143,7 @@ class ParticlePool:
         self._alive_count += 1
         return slot
 
-    # PARCHE 1: cam_offset convierte coordenadas de mundo → pantalla para el blit
-    def update_and_bake(self, dt, blood_surface=None, cam_offset=(0, 0)):
+    def update_and_bake(self, dt, blood_surface=None, cam_offset=(0, 0), zoom=1.0):
         if self._alive_count <= 0:
             self._alive_count = 0
             return
@@ -165,9 +164,9 @@ class ParticlePool:
                     abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1):
                 surf = self.get_cached_surface('circle', p.color, p.size, 200)
                 if surf:
-                    # PARCHE 1: usar coordenadas de PANTALLA (mundo + offset cámara)
-                    bx = int(p.x + cam_offset[0] - surf.get_width()  // 2)
-                    by = int(p.y + cam_offset[1] - surf.get_height() // 2)
+                    # Multiplicar p.x y p.y por el zoom antes de sumar el offset
+                    bx = int(p.x * zoom + cam_offset[0] - surf.get_width()  // 2)
+                    by = int(p.y * zoom + cam_offset[1] - surf.get_height() // 2)
                     blood_surface.blit(surf, (bx, by))
                 p.is_alive = False
                 freed += 1

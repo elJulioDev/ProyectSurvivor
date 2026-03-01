@@ -119,6 +119,9 @@ class LevelManager:
         self._kills_this_frame    = 0
         self.camera.snap_to(self.player)
 
+        self._blood_cam_x = self.camera.offset_x
+        self._blood_cam_y = self.camera.offset_y
+
     def set_target_fps(self, fps: int):
         """Escalar intervalos internos al FPS objetivo."""
         scale = max(1.0, fps / 60.0)
@@ -203,17 +206,6 @@ class LevelManager:
 
         self._update_gems(dt)
 
-        # PARCHE 1: pasar cam_offset para coordenadas de pantalla en el baking
-        cam_off = (self.camera.offset_x, self.camera.offset_y)
-        self.particle_pool.update_and_bake(dt, self.blood_surface, cam_offset=cam_off)
-
-        if self._explosion_flash > 0:
-            self._explosion_flash -= dt
-
-        if not self.player.dash_active:
-            self._ninja_dash_hit_set.clear()
-
-        # PARCHE 1: desplazar blood_surface cuando la cámara se mueve
         dx = self.camera.offset_x - self._blood_cam_x
         dy = self.camera.offset_y - self._blood_cam_y
         if abs(dx) > 0.5 or abs(dy) > 0.5:
@@ -222,6 +214,15 @@ class LevelManager:
             self.blood_surface.blit(tmp, (int(dx), int(dy)))
             self._blood_cam_x = self.camera.offset_x
             self._blood_cam_y = self.camera.offset_y
+
+        cam_off = (self.camera.offset_x, self.camera.offset_y)
+        self.particle_pool.update_and_bake(dt, self.blood_surface, cam_offset=cam_off, zoom=self.camera.zoom)
+
+        if self._explosion_flash > 0:
+            self._explosion_flash -= dt
+
+        if not self.player.dash_active:
+            self._ninja_dash_hit_set.clear()
 
         self.frame_counter += 1
 
