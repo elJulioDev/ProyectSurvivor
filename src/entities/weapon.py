@@ -7,11 +7,10 @@ Sistema de armas con soporte completo para multiplicadores del jugador:
   - extra_penetration       → penetración adicional
 """
 import math, random, pygame, os
+from utils.paths import resource_path
 
 def load_sound(filename):
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(current_dir))
-    path = os.path.join(project_root, "assets", "sounds", filename)
+    path = resource_path(os.path.join("assets", "sounds", filename))
     if not os.path.exists(path):
         print(f"Error: sonido no encontrado en: {path}")
         return None

@@ -29,3 +29,5 @@ Thumbs.db
 
 # Archivos de configuración local
 *.log
+
+game.spec
