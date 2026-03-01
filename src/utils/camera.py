@@ -1,16 +1,16 @@
 """
-Camera con soporte de zoom.
-  zoom > 1.0  →  vista más cercana (modo mobile: MOBILE_CAMERA_ZOOM)
-  zoom = 1.0  →  comportamiento original (desktop)
+Camera con soporte de zoom y delta-time CORRECTO.
 
-Cambios respecto a la versión anterior:
-  - Nuevo atributo: self.zoom   (float, default 1.0)
-  - center_x / center_y  rastrean la posición mundo del centro de cámara
-  - apply_coords()        tiene en cuenta el zoom
-  - is_on_screen()        tiene en cuenta el zoom
-  - is_point_on_screen()  ídem
-  - _clamp_center()       limita al borde del mundo con zoom correcto
-  - offset_x / offset_y   se mantienen actualizados para código legacy
+Correcciones vs versión anterior:
+  - update() acepta `dt` (float, default 1.0) — antes ignoraba el FPS real.
+  - Lerp frame-rate independent:  lerp_dt = 1 - (1 - lerp_speed)^dt
+      · A dt=1.0 (60fps):  lerp_dt = 0.08        (igual que antes)
+      · A dt=0.5 (120fps): lerp_dt ≈ 0.041       (la mitad por frame, pero
+        se aplica el doble de veces → mismo seguimiento real por segundo)
+      · A dt=2.0 (30fps):  lerp_dt ≈ 0.1536      (más grande, pero la mitad
+        de frames → mismo resultado)
+  - Shake decay frame-rate independent:  intensity *= decay^dt
+      · Antes a 120fps el temblor desaparecía en la mitad del tiempo real.
 """
 import pygame, random
 from settings import WINDOW_WIDTH, WINDOW_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT
@@ -36,7 +36,6 @@ class Camera:
         self._shake_y        = 0.0
 
         # Offsets legados — se recalculan cada frame
-        # Con zoom=1: offset_x = -center_x + _CW/2  (idéntico al original)
         self.offset_x = 0
         self.offset_y = 0
         self.camera   = pygame.Rect(0, 0, width, height)
@@ -91,7 +90,7 @@ class Camera:
     def apply_rect(self, rect):
         return rect.move(self.offset_x, self.offset_y)
 
-    def update(self, target, mouse_pos=None) -> None:
+    def update(self, target, mouse_pos=None, dt: float = 1.0) -> None:
         tx = float(target.rect.centerx)
         ty = float(target.rect.centery)
 
@@ -103,16 +102,28 @@ class Camera:
             tx += mx * 0.4
             ty += my * 0.4
 
-        ls = self.lerp_speed
-        self.center_x += (tx - self.center_x) * ls
-        self.center_y += (ty - self.center_y) * ls
+        # ── Lerp frame-rate independent ─────────────────────────────────
+        # Fórmula: lerp_dt = 1 - (1 - lerp_speed)^dt
+        #   · Garantiza que la cámara recorra la misma fracción de la
+        #     distancia al target POR SEGUNDO de tiempo real, sin importar FPS.
+        #   · A 60fps (dt=1.0):  lerp_dt = 0.08  (sin cambio)
+        #   · A 120fps (dt=0.5): lerp_dt ≈ 0.041 (la mitad por frame,
+        #     el doble de frames → igual por segundo real)
+        lerp_dt = 1.0 - (1.0 - self.lerp_speed) ** dt
+        self.center_x += (tx - self.center_x) * lerp_dt
+        self.center_y += (ty - self.center_y) * lerp_dt
         self._clamp_center()
 
+        # ── Shake frame-rate independent ─────────────────────────────────
+        # decay^dt garantiza el mismo tiempo de extinción a cualquier FPS.
+        #   · Antes: a 120fps el temblor desaparecía en la mitad del tiempo real.
         self._shake_x = self._shake_y = 0.0
         if self.shake_intensity > 0.1:
             self._shake_x = random.uniform(-self.shake_intensity, self.shake_intensity)
             self._shake_y = random.uniform(-self.shake_intensity, self.shake_intensity)
-            self.shake_intensity *= self.shake_decay
+            self.shake_intensity *= self.shake_decay ** dt
+            if self.shake_intensity < 0.1:
+                self.shake_intensity = 0.0
 
         self._update_offsets()
         self._update_culling_bounds()
@@ -126,10 +137,6 @@ class Camera:
         self.center_y = max(half_h, min(self.height - half_h, self.center_y))
 
     def _update_offsets(self) -> None:
-        """
-        Mantiene offset_x/y legados que usan spawn_manager, _render_grid, etc.
-        Derivación: apply_coords(0,0) = (-center_x*z + CW/2 + shake, ...)
-        """
         self.offset_x = int(-self.center_x * self.zoom + _CW * 0.5 + self._shake_x)
         self.offset_y = int(-self.center_y * self.zoom + _CH * 0.5 + self._shake_y)
         self.camera   = pygame.Rect(

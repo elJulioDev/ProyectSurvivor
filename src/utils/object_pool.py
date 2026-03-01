@@ -1,11 +1,14 @@
 """
-ObjectPool optimizado:
-- ParticlePool.render_all(): pasa ÚNICA (antes 2 pasadas por frame).
-  Devuelve {floor_count, air_count} con un solo loop de 800 partículas.
-- _blit_floor / _blit_air: listas pre-asignadas, se vacían con .clear()
-  en lugar de crear nueva lista cada frame.
-- bake_static_blood(): llamado externamente cada N frames (no cada frame).
-- ProjectilePool sin cambios relevantes (ya es eficiente).
+ObjectPool con corrección de zoom para partículas.
+
+Corrección en render_all():
+  - Antes:  sx = p.x + cam_x   (ignora zoom → partículas en posición incorrecta)
+  - Ahora:  sx = p.x * zoom + cam_x  (equivalente a apply_coords con zoom)
+  Derivación:
+    apply_coords(x) = (x - center_x)*zoom + CW/2
+    offset_x        = -center_x*zoom + CW/2
+    → (x - center_x)*zoom + CW/2 = x*zoom - center_x*zoom + CW/2 = x*zoom + offset_x
+  Con zoom=1 el resultado es idéntico al anterior.
 """
 import pygame
 import math
@@ -75,15 +78,12 @@ class ParticlePool:
             p.is_alive = False
         self.next_index = 0
 
-        # Listas de blit pre-asignadas (evita list() allocation por frame)
         self._blit_floor: list = []
         self._blit_air:   list = []
 
-        # Intervalo de baking (frames entre cada bake)
         self._bake_counter  = 0
-        self._bake_interval = 8   # bake cada 8 frames ≈ 7.5 veces/seg a 60fps
+        self._bake_interval = 8
 
-        # Caché de superficies gore pre-renderizadas
         self.cached_surfaces: dict = {}
         self._generate_surface_cache()
 
@@ -141,15 +141,19 @@ class ParticlePool:
         """
         layer = 'floor'  → solo partículas estáticas (charcos)
         layer = 'air'    → solo partículas en movimiento
-        layer = 'all'    → ambas (render único — llamar UNA vez por frame)
+        layer = 'all'    → ambas
 
-        Retorna número de partículas renderizadas.
+        CORRECCIÓN: aplica zoom de cámara a la posición de cada partícula.
+          sx = p.x * zoom + cam_x   (en vez de p.x + cam_x)
+          cam_x = offset_x = -center_x*zoom + CW/2
+          → resultado: (p.x - center_x)*zoom + CW/2  == apply_coords(p.x)
         """
         blit_floor = self._blit_floor
         blit_air   = self._blit_air
         blit_floor.clear()
         blit_air.clear()
 
+        zoom    = camera.zoom
         cam_x   = camera.offset_x
         cam_y   = camera.offset_y
         min_x   = -50
@@ -161,8 +165,14 @@ class ParticlePool:
             if not p.is_alive:
                 continue
 
-            sx = p.x + cam_x
-            sy = p.y + cam_y
+            # CORRECCIÓN: multiplicar por zoom para posicionar correctamente
+            if zoom == 1.0:
+                sx = p.x + cam_x
+                sy = p.y + cam_y
+            else:
+                sx = p.x * zoom + cam_x
+                sy = p.y * zoom + cam_y
+
             if not (min_x < sx < max_x and min_y < sy < max_y):
                 continue
 
@@ -190,30 +200,23 @@ class ParticlePool:
             else:
                 pygame.draw.circle(screen, p.color, (int(sx), int(sy)), cur_size)
 
-        # Renderizar según layer
         if layer == 'floor':
             screen.blits(blit_floor)
             return len(blit_floor)
         elif layer == 'air':
             screen.blits(blit_air)
             return len(blit_air)
-        else:  # 'all'
+        else:
             screen.blits(blit_floor)
             screen.blits(blit_air)
             return len(blit_floor) + len(blit_air)
 
     def bake_static_blood(self, target_surface):
-        """
-        Transfiere partículas estáticas a blood_surface permanente.
-        NO llamar cada frame — usa el counter interno.
-        Retorna True si realmente ejecutó el bake.
-        """
         self._bake_counter += 1
         if self._bake_counter < self._bake_interval:
             return False
         self._bake_counter = 0
 
-        cached = self.cached_surfaces
         for p in self.pool:
             if not p.is_alive:
                 continue
