@@ -54,7 +54,7 @@ class GameplayScene(Scene):
             print("[Platform] Android detectado — controles táctiles activados.")
 
     def on_enter(self):
-        pygame.mouse.set_visible(not self.mobile.enabled)
+        pygame.mouse.set_visible(self.mobile.enabled)
         self.level.initialize()
         self.level.set_target_fps(self.target_fps if self.target_fps > 0 else 60)
         self.show_debug      = False
@@ -69,7 +69,7 @@ class GameplayScene(Scene):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F5:
             self.mobile.enabled = not self.mobile.enabled
             print(f"[DEBUG] Modo móvil: {'ON' if self.mobile.enabled else 'OFF'}")
-            pygame.mouse.set_visible(not self.mobile.enabled)
+            pygame.mouse.set_visible(self.mobile.enabled)
             return
 
         # F6: ciclo de FPS objetivo

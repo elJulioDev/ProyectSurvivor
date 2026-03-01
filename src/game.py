@@ -19,6 +19,8 @@ class Game:
         self.current_scene.update()
         
         if self.current_scene.next_scene:
+            if hasattr(self.current_scene, 'on_exit'):
+                self.current_scene.on_exit()
             self.current_scene = self.current_scene.next_scene
             self.current_scene.on_enter()
     

@@ -134,10 +134,12 @@ class LevelManager:
             mdx, mdy = mobile.movement
             self.player.handle_input_mobile(mdx, mdy, dt)
             if mobile.aim_angle is not None:
+                # Si el usuario usa el joystick derecho, miramos a esa dirección
                 self.player.angle = mobile.aim_angle
-            else:
-                cam_offset = (self.camera.offset_x, self.camera.offset_y)
-                self.player.update_rotation(mouse_pos, cam_offset)
+            elif mdx != 0 or mdy != 0:
+                # Si no usa el joystick derecho pero se está moviendo, miramos a la dirección de movimiento
+                self.player.angle = math.atan2(mdy, mdx)
+            # Si no apunta ni se mueve, el jugador simplemente mantiene el ángulo que ya tenía.
             if mobile.fire:
                 self.player.attack(self.camera)
         else:

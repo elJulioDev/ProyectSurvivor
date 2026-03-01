@@ -159,21 +159,21 @@ class UpgradeScene(Scene):
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.hovered_idx >= 0 and self.input_cooldown <= 0:
                 self._apply_upgrade(self.options[self.hovered_idx])
-                pygame.mouse.set_visible(False)
+                pygame.mouse.set_visible(self.gameplay_scene.mobile.enabled)
                 self.game.current_scene = self.gameplay_scene
 
         if event.type == pygame.KEYDOWN and self.input_cooldown <= 0:
             if event.key == pygame.K_1 and len(self.options) >= 1:
                 self._apply_upgrade(self.options[0])
-                pygame.mouse.set_visible(False)
+                pygame.mouse.set_visible(self.gameplay_scene.mobile.enabled)
                 self.game.current_scene = self.gameplay_scene
             elif event.key == pygame.K_2 and len(self.options) >= 2:
                 self._apply_upgrade(self.options[1])
-                pygame.mouse.set_visible(False)
+                pygame.mouse.set_visible(self.gameplay_scene.mobile.enabled)
                 self.game.current_scene = self.gameplay_scene
             elif event.key == pygame.K_3 and len(self.options) >= 3:
                 self._apply_upgrade(self.options[2])
-                pygame.mouse.set_visible(False)
+                pygame.mouse.set_visible(self.gameplay_scene.mobile.enabled)
                 self.game.current_scene = self.gameplay_scene
 
     def _apply_upgrade(self, key):

@@ -224,6 +224,9 @@ class MenuScene(Scene):
         self._glitch_timer = 0.0
         self._glitch_active = False
 
+    def on_enter(self):
+        pygame.mouse.set_visible(True)
+
     def _build_grid(self):
         """Crea una superficie de cuadrícula reutilizable."""
         s = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
@@ -440,6 +443,6 @@ class MenuScene(Scene):
             self.screen.blit(ac, (px + 165, ky))
 
     def _draw_version(self):
-        v = self.f_version.render("v0.1-alpha  ·  ProyectSurvivor", True, (35, 37, 52))
+        v = self.f_version.render("v0.1-alpha  -  ProyectSurvivor", True, (35, 37, 52))
         self.screen.blit(v, (WINDOW_WIDTH - v.get_width() - 12,
                               WINDOW_HEIGHT - v.get_height() - 8))
