@@ -1,20 +1,14 @@
 """
-LevelManager con sistema de partículas GORE optimizado + ChunkManager.
+LevelManager v3
 
 CAMBIOS vs versión anterior:
-  - _update_weapons(): llama weapon.auto_shoot(dt) en todas las armas
-    → NovaWeapon dispara solo, OrbitalWeapon detecta colisiones sin pool.
-  - _update_aura(): añadido knockback continuo si player.aura_knockback > 0
-    → empuja a los enemigos hacia afuera del radio del aura.
-  - Importa OrbitalWeapon para isinstance() check en _update_weapons().
-
-OPTIMIZACIONES MÓVIL (v2):
-  - _render_aura(): superficies SRCALPHA pre-alocadas y reutilizadas cada frame
-    → elimina 2-3 Surface() allocations por frame (crítico en Android).
-  - _update_lod(): umbrales agresivos en móvil (quality=0 desde 60 visibles).
-  - _update_aura(): usa spatial_grid en lugar de iterar todos los enemigos.
-  - _render_grid(): saltado completamente en móvil (decorativo, costoso).
-  - echo del aura: desactivado en móvil (Surface dinámica de tamaño variable).
+  - _update_aura(): knockback ahora es un PULSO periódico, no continuo.
+      · Cada `aura_knockback_interval` segundos (default 4s) se emite una
+        ráfaga fuerte que empuja a todos los enemigos del radio.
+      · El timer se guarda en `_aura_pulse_timer` (segundos).
+      · La mejora 'aura_pulse_rapido' reduce el intervalo (mínimo 1s).
+  - spawn_manager.update() recibe player_level → enemigos escalan con el nivel.
+  - _aura_pulse_timer inicializado en __init__ e initialize().
 """
 import pygame
 import math
@@ -86,14 +80,14 @@ class LevelManager:
         self._ninja_dash_hit_set: set = set()
         self._kills_this_frame: int = 0
 
-        # ── CACHÉ DE SUPERFICIES DEL AURA (evita allocations por frame) ──────
-        # Se crean UNA VEZ cuando el radio cambia; se reutilizan y limpian
-        # cada frame con fill((0,0,0,0)) en vez de crear objetos nuevos.
+        # Caché de superficies del aura
         self._aura_fill_surf: pygame.Surface | None = None
         self._aura_ring_surf: pygame.Surface | None = None
-        self._aura_last_radius: int = -1   # invalida caché cuando cambia
+        self._aura_last_radius: int = -1
 
-        # Pre-caché de la cuadrícula de fondo (surface estática)
+        # Timer del pulso repulsor del aura (en segundos)
+        self._aura_pulse_timer: float = 0.0
+
         self._grid_surf: pygame.Surface | None = None
         self._grid_built = False
 
@@ -106,7 +100,6 @@ class LevelManager:
         self.enemy_projectiles.clear()
         self.projectile_pool.clear()
         self.particle_pool.clear()
-
         self.chunk_manager.clear()
 
         self.score    = 0
@@ -122,8 +115,8 @@ class LevelManager:
         self._explosion_flash     = 0
         self._ninja_dash_hit_set.clear()
         self._kills_this_frame    = 0
+        self._aura_pulse_timer    = 0.0
 
-        # Invalidar caché de superficies del aura
         self._aura_fill_surf  = None
         self._aura_ring_surf  = None
         self._aura_last_radius = -1
@@ -142,16 +135,13 @@ class LevelManager:
         particles = self.particle_pool._alive_count
 
         if self._is_mobile:
-            # Umbrales agresivos: en móvil hay menos potencia de cómputo.
-            # Con 680 enemigos cap, 60 visibles ya es media pantalla llena.
             if visible > 60 or particles > 150:
-                self.particle_system.set_quality(0)   # CRISIS
+                self.particle_system.set_quality(0)
             elif visible > 30 or particles > 80:
-                self.particle_system.set_quality(1)   # MEDIO
+                self.particle_system.set_quality(1)
             else:
-                self.particle_system.set_quality(2)   # ALTO
+                self.particle_system.set_quality(2)
         else:
-            # Umbrales originales para PC
             if visible > 350 or particles > 600:
                 self.particle_system.set_quality(0)
             elif visible > 180 or particles > 350:
@@ -206,9 +196,11 @@ class LevelManager:
         self._update_aura(dt)
         self._check_ninja_dash()
 
-        player_pos = self.player.get_position()
-        new_enemies = self.spawn_manager.update(
-            dt, len(self.enemies), cam_offset, player_pos=player_pos
+        player_pos   = self.player.get_position()
+        player_level = self.player.level  # para escalar enemigos
+        new_enemies  = self.spawn_manager.update(
+            dt, len(self.enemies), cam_offset,
+            player_pos=player_pos, player_level=player_level
         )
         if new_enemies:
             self.enemies.extend(new_enemies)
@@ -223,10 +215,7 @@ class LevelManager:
         self._update_gems(dt)
 
         self.chunk_manager.tick(self.camera)
-        self.particle_pool.update_and_bake(
-            dt,
-            chunk_manager=self.chunk_manager
-        )
+        self.particle_pool.update_and_bake(dt, chunk_manager=self.chunk_manager)
 
         if self._explosion_flash > 0:
             self._explosion_flash -= dt
@@ -249,11 +238,20 @@ class LevelManager:
         px, py         = player.x, player.y
         dmg_per_frame  = aura_dmg * dt / 60.0
 
-        # ── OPTIMIZACIÓN: usar spatial_grid en lugar de iterar todos ──────
-        # Convertimos el radio del aura a "celdas de grid" (cell_size=100px)
-        # y buscamos solo los enemigos cercanos.
         grid_r = max(1, int(math.ceil(aura_radius / 100.0)))
         nearby = self.spatial_grid.get_nearby(px, py, radius=grid_r)
+
+        # ── Pulso repulsor (timer-based, no continuo) ───────────────────────
+        # Cada `aura_knockback_interval` segundos se emite una ráfaga fuerte.
+        # Esto evita que los enemigos queden "pegados" en el límite del aura
+        # y los lanza hacia afuera de forma clara y satisfactoria.
+        pulse_fired = False
+        if aura_knockback > 0:
+            pulse_interval = max(1.0, getattr(player, 'aura_knockback_interval', 4.0))
+            self._aura_pulse_timer += dt / 60.0  # dt units → segundos reales
+            if self._aura_pulse_timer >= pulse_interval:
+                self._aura_pulse_timer = 0.0
+                pulse_fired = True
 
         for enemy in nearby:
             if not enemy.is_alive:
@@ -262,20 +260,24 @@ class LevelManager:
             dy = enemy.y - py
             dist_sq = dx * dx + dy * dy
             if dist_sq <= radius_sq:
-                # Partículas
+                # Partículas gore (reducido en calidad baja)
                 if self.frame_counter % 8 == 0 and self.particle_system.quality > 0:
                     self.particle_system.create_blood_splatter(
                         enemy.x, enemy.y, force=0.4, count=1
                     )
-                # Daño
+                # Daño continuo del aura
                 if enemy.take_damage(dmg_per_frame):
                     self._on_enemy_killed(enemy)
-                # Knockback radial continuo (si upgrade activo)
-                elif aura_knockback > 0 and dist_sq > 1:
+                # Knockback puntual al disparar el pulso
+                elif pulse_fired and dist_sq > 1:
                     dist = math.sqrt(dist_sq)
-                    push = aura_knockback * dt * 0.6
+                    push = aura_knockback * 14.0  # ráfaga fuerte
                     enemy.knockback_x += (dx / dist) * push
                     enemy.knockback_y += (dy / dist) * push
+
+        # Sacudida suave de cámara al pulsar
+        if pulse_fired and aura_knockback > 0:
+            self.camera.add_shake(1.5)
 
     def _check_ninja_dash(self):
         player = self.player
@@ -417,23 +419,17 @@ class LevelManager:
             self.hit_particle_cooldown -= dt
 
         kb_mult = getattr(self.player, 'knockback_mult', 1.0)
-        
-        # Iterar sobre AMBAS listas
         all_weapons = self.player.weapons + getattr(self.player, 'passive_weapons', [])
 
         for weapon in all_weapons:
             weapon.update(dt=dt)
-
-            # Auto-disparo (Nova, Boomerang, etc.)
             weapon.auto_shoot(dt)
 
-            # Orbes Orbitales: detección de impacto pasiva
             if isinstance(weapon, OrbitalWeapon):
                 for enemy, dmg in weapon.check_hits(self.enemies, kb_mult):
                     if enemy.take_damage(dmg):
                         self._on_enemy_killed(enemy)
 
-            # Láser continuo
             if isinstance(weapon, LaserWeapon) and weapon.draw_timer > 0:
                 beam = weapon.get_beam_info()
                 if beam:
@@ -562,9 +558,7 @@ class LevelManager:
     # ── RENDER ──────────────────────────────────────────────────────────────
     def render_world(self, screen):
         self._render_grid(screen)
-
         self.chunk_manager.render(screen, self.camera)
-
         self.particle_pool.render_all(screen, self.camera, layer='floor')
 
         cam = self.camera
@@ -626,33 +620,24 @@ class LevelManager:
         pulse_a = (math.sin(t) + 1.0) * 0.5
         pulse_b = (math.sin(t + math.pi) + 1.0) * 0.5
 
-        # ── CACHÉ DE SUPERFICIES: crear solo cuando el radio cambia ──────────
-        # En móvil el radio raramente cambia mid-game, así que en la práctica
-        # estas superficies se crean 1-2 veces por partida, no cada frame.
         if aura_radius != self._aura_last_radius:
             diam = aura_radius * 2
             self._aura_fill_surf = pygame.Surface((diam, diam), pygame.SRCALPHA)
             self._aura_ring_surf = pygame.Surface((diam, diam), pygame.SRCALPHA)
             self._aura_last_radius = aura_radius
 
-        # Reutilizar fill_surf: limpiar → redibujar
         fill_alpha = int(18 + pulse_a * 14)
         self._aura_fill_surf.fill((0, 0, 0, 0))
         pygame.draw.circle(self._aura_fill_surf, (180, 30, 255, fill_alpha),
                            (aura_radius, aura_radius), aura_radius)
         screen.blit(self._aura_fill_surf, (cx - aura_radius, cy - aura_radius))
 
-        # Reutilizar ring_surf
         ring_alpha = int(90 + pulse_b * 80)
         self._aura_ring_surf.fill((0, 0, 0, 0))
         pygame.draw.circle(self._aura_ring_surf, (220, 60, 255, ring_alpha),
                            (aura_radius, aura_radius), aura_radius, 2)
         screen.blit(self._aura_ring_surf, (cx - aura_radius, cy - aura_radius))
 
-        # ── Echo del aura: SALTADO en móvil ──────────────────────────────────
-        # El echo usa un radio dinámico (echo_r) que cambia cada frame,
-        # lo que obligaría a crear una Surface nueva cada frame.
-        # En móvil simplemente lo omitimos — el efecto visual es menor.
         if not self._is_mobile:
             echo_r = int(aura_radius * (1.0 + pulse_a * 0.15))
             echo_alpha = int(40 * (1.0 - pulse_a))
@@ -666,11 +651,9 @@ class LevelManager:
         player = self.player
         sp = self.camera.apply_coords(player.x, player.y)
         cx, cy = int(sp[0]), int(sp[1])
-
         progress = player.dash_timer / player.dash_duration
         ring_r = int(player.size * 1.8 + (1.0 - progress) * 20)
         ring_alpha = int(progress * 180)
-
         ring_surf = pygame.Surface((ring_r * 2, ring_r * 2), pygame.SRCALPHA)
         pygame.draw.circle(ring_surf, (140, 0, 255, ring_alpha),
                            (ring_r, ring_r), ring_r, 3)
@@ -678,11 +661,7 @@ class LevelManager:
 
     # ── GRID ────────────────────────────────────────────────────────────────
     def _render_grid(self, screen):
-        # ── En móvil la cuadrícula decorativa se salta completamente ─────────
-        # Dibujar ~26 líneas horizontales + ~20 verticales cada frame no es
-        # gratis en Android, y el jugador móvil no las necesita.
         if self._is_mobile:
-            # Solo los bordes del mundo (útil para orientación)
             ox = self.camera.offset_x
             oy = self.camera.offset_y
             for lx in (ox, ox + WORLD_WIDTH):
@@ -695,7 +674,6 @@ class LevelManager:
                                      (0, int(ly)), (WINDOW_WIDTH, int(ly)), 2)
             return
 
-        # PC: cuadrícula completa + bordes del mundo (comportamiento original)
         gs = 100
         ox = self.camera.offset_x
         oy = self.camera.offset_y

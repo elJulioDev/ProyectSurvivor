@@ -1,15 +1,18 @@
 """
-Escena de Mejoras — con clock propio para limitarse a 60fps.
+Escena de Mejoras — v3
 
 NUEVOS REQUISITOS:
-  'ninja_dash_ready' → player.dash_unlocked + dash_cooldown maxed (3 stacks)
-  'aura_unlocked'    → player.aura_damage > 0
+  'orbital_unlocked'        → OrbitalWeapon está en passive_weapons
+  'aura_knockback_unlocked' → player.aura_knockback > 0
+  'ninja_dash_ready'        → dash desbloqueado + Carga Rapida al máximo (3 stacks)
+  'aura_unlocked'           → player.aura_damage > 0
 
-NUEVOS STATS EN _apply_upgrade:
-  'ninja_dash'       → player.ninja_dash = True
-  'aura_damage'      → player.aura_damage += value
-  'aura_radius'      → player.aura_radius += value
-  'aura_damage_mult' → player.aura_damage *= value
+NUEVOS TYPES EN _apply_upgrade:
+  type='orbital' → stat_names: orbital_add_orb, orbital_speed, orbital_range, orbital_damage
+  'aura_knockback_interval' → resta 1s al intervalo de pulso (mínimo 1s)
+
+BALANCE:
+  'armor': cap reducido a 0.60 (era 0.75) — 4 stacks × 10% = 40% reducción máxima.
 """
 import pygame
 import random
@@ -74,10 +77,6 @@ CARDS_START_X = (WINDOW_WIDTH - TOTAL_CARDS_W) // 2
 
 
 def _check_requires(req: str, player) -> bool:
-    """
-    Evalúa el campo 'requires' de una mejora contra el estado actual del jugador.
-    Retorna True si el requisito se cumple (la mejora puede aparecer).
-    """
     if req is None:
         return True
 
@@ -87,14 +86,20 @@ def _check_requires(req: str, player) -> bool:
     if req == 'aura_unlocked':
         return getattr(player, 'aura_damage', 0.0) > 0
 
+    if req == 'aura_knockback_unlocked':
+        return getattr(player, 'aura_knockback', 0.0) > 0
+
     if req == 'ninja_dash_ready':
-        # Requiere: dash desbloqueado + Carga Rapida al máximo (3 stacks)
         return (
             player.dash_unlocked and
             player.upgrade_counts.get('dash_cooldown', 0) >= 3
         )
 
-    # Fallback: intenta acceder al atributo del jugador como bool
+    if req == 'orbital_unlocked':
+        from entities.weapon import OrbitalWeapon
+        return any(isinstance(w, OrbitalWeapon)
+                   for w in getattr(player, 'passive_weapons', []))
+
     try:
         return bool(getattr(player, req, False))
     except Exception:
@@ -106,7 +111,6 @@ class UpgradeScene(Scene):
         super().__init__(game)
         self.gameplay_scene = gameplay_scene
 
-        # Clock propio — limita a 60fps
         self._clock = pygame.time.Clock()
 
         self.font_title  = pygame.font.Font(None, 58)
@@ -133,7 +137,6 @@ class UpgradeScene(Scene):
 
         for key, upg in UPGRADES.items():
             req = upg.get('requires')
-            # ── Nuevo sistema de requisitos unificado
             if not _check_requires(req, player):
                 continue
 
@@ -245,7 +248,8 @@ class UpgradeScene(Scene):
             elif sname == 'health_regen':
                 player.health_regen += val
             elif sname == 'damage_reduction':
-                player.damage_reduction = min(0.75, player.damage_reduction + val)
+                # Cap reducido a 0.60 para evitar invulnerabilidad efectiva
+                player.damage_reduction = min(0.60, player.damage_reduction + val)
             elif sname == 'lifesteal_chance':
                 player.lifesteal_chance = min(1.0, player.lifesteal_chance + val)
             elif sname == 'emergency_regen':
@@ -256,26 +260,29 @@ class UpgradeScene(Scene):
                 player.dash_cooldown = max(10, int(player.dash_cooldown * val))
             elif sname == 'dash_duration':
                 player.dash_duration = int(player.dash_duration * val)
-
             elif sname == 'ninja_dash':
                 player.ninja_dash = True
-                print("🥷 Artes Oscuras desbloqueado — el Dash mata instantaneamente.")
-
+                print("🥷 Artes Oscuras desbloqueado.")
             elif sname == 'aura_damage':
                 player.aura_damage += val
                 print(f"🌀 Aura de Espinas: {player.aura_damage:.1f} DPS")
-
             elif sname == 'aura_radius':
                 player.aura_radius += val
                 print(f"🌀 Radio del Aura: {player.aura_radius:.0f}px")
-
             elif sname == 'aura_damage_mult':
                 player.aura_damage *= val
                 print(f"🌀 Aura Sobrecargada: {player.aura_damage:.1f} DPS")
-
             elif sname == 'aura_knockback':
                 player.aura_knockback = val
-                print(f"🌀 Aura Repulsora activada — fuerza de empuje: {val}")
+                # Inicializar el intervalo de pulso si no existe
+                if not hasattr(player, 'aura_knockback_interval'):
+                    player.aura_knockback_interval = 4.0
+                print(f"🌀 Aura Repulsora: pulso cada {player.aura_knockback_interval:.0f}s")
+            elif sname == 'aura_knockback_interval':
+                # val es negativo (-1.0) → reduce el intervalo
+                current = getattr(player, 'aura_knockback_interval', 4.0)
+                player.aura_knockback_interval = max(1.0, current + val)
+                print(f"⚡ Pulso Acelerado: intervalo → {player.aura_knockback_interval:.0f}s")
 
         elif utype == 'weapon':
             sname = upg['stat_name']
@@ -287,6 +294,30 @@ class UpgradeScene(Scene):
             elif sname == 'projectile_size_mult':  player.projectile_size_mult  *= val
             elif sname == 'knockback_mult':        player.knockback_mult        *= val
 
+        elif utype == 'orbital':
+            # Buscar el OrbitalWeapon en passive_weapons y aplicar la mejora
+            from entities.weapon import OrbitalWeapon
+            orbital = next(
+                (w for w in getattr(player, 'passive_weapons', [])
+                 if isinstance(w, OrbitalWeapon)),
+                None
+            )
+            if orbital:
+                sname = upg['stat_name']
+                val   = upg['value']
+                if sname == 'orbital_add_orb':
+                    orbital.add_orb()
+                    print(f"💫 Orbes Orbitales: {orbital.num_orbs} orbes activos")
+                elif sname == 'orbital_speed':
+                    orbital.increase_speed(val)
+                    print(f"💫 Velocidad orbital: {orbital.orbit_speed:.3f} rad/frame")
+                elif sname == 'orbital_range':
+                    orbital.increase_orbit_radius(val)
+                    print(f"💫 Radio orbital: {orbital.orbit_radius:.0f}px")
+                elif sname == 'orbital_damage':
+                    orbital.increase_damage_mult(val)
+                    print(f"💫 Daño orbital: {orbital.damage}")
+
         elif utype == 'xp':
             sname = upg['stat_name']
             val   = upg['value']
@@ -295,7 +326,7 @@ class UpgradeScene(Scene):
             elif sname == 'xp_on_kill_bonus':   player.xp_on_kill_bonus  += int(val)
             elif sname == 'magnet_speed_mult':  player.magnet_speed_mult *= val
 
-        print(f"✅ Mejora aplicada: [{upg['rarity'].upper()}] {upg['name']}")
+        print(f"✅ Mejora: [{upg['rarity'].upper()}] {upg['name']}")
 
     def update(self):
         dt_ms = self._clock.tick(60)

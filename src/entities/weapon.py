@@ -1,22 +1,13 @@
 """
-Sistema de armas con soporte completo para multiplicadores del jugador.
+Sistema de armas.
 
-NUEVAS ARMAS (Vampire Survivors style):
-  - NovaWeapon:      Explosión de 8 proyectiles en todas direcciones (auto-disparo).
-                     Perforan infinitamente → ideal contra hordas de +1000 enemigos.
-  - OrbitalWeapon:   3 orbes girando alrededor del jugador. Daño por contacto +
-                     retroceso fuerte. Sin pool de proyectiles — siempre activo.
-  - BoomerangWeapon: Proyectil que perfora infinitamente, vira al llegar a X distancia
-                     y regresa. Daña a los mismos enemigos en ambas pasadas.
-
-BASE:
-  - Weapon.auto_shoot(dt): Override en armas de disparo pasivo. LevelManager
-    lo llama cada frame para que las armas auto-activas gestionen su propio timing.
-
-OPTIMIZACIONES MÓVIL (v2):
-  - OrbitalWeapon: superficie de glow pre-allocada y cacheada.
-    Antes creaba 1 Surface(SRCALPHA) por orbe por frame = 180 allocations/s a 60fps.
-    Ahora se crea UNA VEZ (o cuando cambia el radio del orbe) y se reutiliza.
+OrbitalWeapon v2:
+  · Empieza con 1 orbe (era 3).
+  · orb_radius=10 (era 15) — hitbox más pequeño y justo.
+  · Variables de instancia (orbit_speed, hit_cooldown_max) en vez de clase.
+  · Métodos de mejora: add_orb(), increase_speed(), increase_orbit_radius(),
+    increase_damage_mult() — llamados desde UpgradeScene._apply_upgrade().
+  · _rebuild_glow() reconstruye la caché solo cuando cambia el radio del orbe.
 """
 import math, random, pygame, os
 from utils.paths import resource_path
@@ -86,11 +77,6 @@ class Weapon:
         return False
 
     def auto_shoot(self, dt=1.0):
-        """
-        Override en armas de auto-disparo (Nova, Orbital, etc.).
-        LevelManager._update_weapons() lo llama cada frame.
-        No hace nada por defecto.
-        """
         pass
 
 class PistolWeapon(Weapon):
@@ -101,28 +87,22 @@ class PistolWeapon(Weapon):
     def activate(self, camera=None):
         if not self.projectile_pool:
             return False
-
         owner = self.owner
         speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
         extra_pen   = getattr(owner, 'extra_penetration', 0)
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
-
         angle = owner.angle + random.uniform(-self.current_spread, self.current_spread)
         spawn_dist = 18
         px = owner.x + math.cos(angle) * spawn_dist
         py = owner.y + math.sin(angle) * spawn_dist
-
         p = self.projectile_pool.get(
             px, py, angle,
-            speed=16 * speed_mult,
-            damage=final_dmg,
-            penetration=1 + extra_pen,
-            image_type='circle'
+            speed=16 * speed_mult, damage=final_dmg,
+            penetration=1 + extra_pen, image_type='circle'
         )
         p.color = (0, 255, 255)
         self._apply_player_proj_mods(p, base_size=6)
-
         self.current_spread = min(self.current_spread + 0.05, 0.15)
         return True
 
@@ -135,33 +115,25 @@ class ShotgunWeapon(Weapon):
     def activate(self, camera=None):
         if not self.projectile_pool:
             return False
-
         owner = self.owner
         speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
         extra_pen   = getattr(owner, 'extra_penetration', 0)
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
         base_angle  = owner.angle
-
         for i in range(self.pellets):
             factor = i / (self.pellets - 1) if self.pellets > 1 else 0.5
             offset = (factor - 0.5) * self.base_spread
             angle  = base_angle + offset + random.uniform(-0.05, 0.05)
-
             px = owner.x + math.cos(base_angle) * 15
             py = owner.y + math.sin(base_angle) * 15
-
             p = self.projectile_pool.get(
                 px, py, angle,
-                speed=random.uniform(14, 16) * speed_mult,
-                damage=final_dmg,
-                penetration=3 + extra_pen,
-                lifetime=35,
-                image_type='square'
+                speed=random.uniform(14, 16) * speed_mult, damage=final_dmg,
+                penetration=3 + extra_pen, lifetime=35, image_type='square'
             )
             p.color = (255, random.randint(100, 150), 0)
             self._apply_player_proj_mods(p, base_size=7)
-
         return True
 
 class LaserWeapon(Weapon):
@@ -196,18 +168,14 @@ class LaserWeapon(Weapon):
         if self.draw_timer > 0:
             owner = self.owner
             start = camera.apply_coords(owner.x, owner.y)
-
             end_x = owner.x + math.cos(owner.angle) * self.max_range
             end_y = owner.y + math.sin(owner.angle) * self.max_range
-
             jitter = 2
             end_x += random.uniform(-jitter, jitter)
             end_y += random.uniform(-jitter, jitter)
             end = camera.apply_coords(end_x, end_y)
-
             progress = self.draw_timer / self.duration
             width = max(2, int(10 * progress))
-
             pygame.draw.line(screen, (0, 200, 255), start, end, width + 4)
             pygame.draw.line(screen, (255, 255, 255), start, end, width)
 
@@ -220,31 +188,23 @@ class AssaultRifleWeapon(Weapon):
     def activate(self, camera=None):
         if not self.projectile_pool:
             return False
-
         owner = self.owner
         speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
         extra_pen   = getattr(owner, 'extra_penetration', 0)
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
-
         angle = owner.angle + random.uniform(-self.current_spread, self.current_spread)
         px = owner.x + math.cos(angle) * 22
         py = owner.y + math.sin(angle) * 22
-
         p = self.projectile_pool.get(
             px, py, angle,
-            speed=19 * speed_mult,
-            damage=final_dmg,
-            penetration=1 + extra_pen,
-            lifetime=60,
-            image_type='square'
+            speed=19 * speed_mult, damage=final_dmg,
+            penetration=1 + extra_pen, lifetime=60, image_type='square'
         )
         p.color = (255, 230, 100)
         self._apply_player_proj_mods(p, base_size=7)
-
         self.current_spread = min(self.current_spread + 0.04, self.max_spread)
         return True
-
 
 class SniperWeapon(Weapon):
     def __init__(self, owner):
@@ -260,24 +220,18 @@ class SniperWeapon(Weapon):
     def activate(self, camera=None):
         if not self.projectile_pool:
             return False
-
         owner       = self.owner
         speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
         extra_pen   = getattr(owner, 'extra_penetration', 0)
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
-
         angle = owner.angle
         px = owner.x + math.cos(angle) * 28
         py = owner.y + math.sin(angle) * 28
-
         p = self.projectile_pool.get(
             px, py, angle,
-            speed=38 * speed_mult,
-            damage=final_dmg,
-            penetration=8 + extra_pen,
-            lifetime=220,
-            image_type='circle'
+            speed=38 * speed_mult, damage=final_dmg,
+            penetration=8 + extra_pen, lifetime=220, image_type='circle'
         )
         p.color   = (255, 30, 180)
         p.size    = 5
@@ -291,11 +245,9 @@ class SniperWeapon(Weapon):
             is_active = owner.weapons[owner.current_weapon_index] is self
         except (IndexError, AttributeError):
             is_active = False
-
         angle  = owner.angle
         sp     = camera.apply_coords(owner.x, owner.y)
         sx, sy = int(sp[0]), int(sp[1])
-
         if is_active:
             scope_len = 950
             ex = int(sx + math.cos(angle) * scope_len)
@@ -306,15 +258,12 @@ class SniperWeapon(Weapon):
             pygame.draw.circle(screen, (180, 0, 0),   (ex, ey), 6, 1)
             pygame.draw.circle(screen, (255, 80, 80), (ex, ey), 3)
             pygame.draw.circle(screen, (255, 200, 200), (ex, ey), 1)
-
         if self._muzzle_flash <= 0:
             return
-
         prog = self._muzzle_flash / 8.0
         end_x = int(sx + math.cos(angle) * 500 * prog)
         end_y = int(sy + math.sin(angle) * 500 * prog)
         pygame.draw.line(screen, (255, 30, 180), (sx, sy), (end_x, end_y), 2)
-
         flash_r = int(14 * prog)
         if flash_r > 1:
             muz_x = int(sx + math.cos(angle) * 28)
@@ -325,22 +274,12 @@ class SniperWeapon(Weapon):
             screen.blit(fs, (muz_x - flash_r, muz_y - flash_r))
 
 class NovaWeapon(Weapon):
-    """
-    Nova de Espinas — Auto-disparo circular cada ~3 segundos.
-
-    Lanza 8 proyectiles simultáneos en todas las direcciones con
-    penetración infinita. Ideal para limpiar la pantalla cuando estás rodeado.
-
-    · No requiere apuntar — se activa solo.
-    · Se beneficia de global_damage_mult, extra_penetration y projectile_speed_mult.
-    · El cooldown se reduce con global_cooldown_mult igual que las demás armas.
-    """
+    """Auto-disparo circular cada ~3 segundos. 8 proyectiles, penetración infinita."""
     def __init__(self, owner):
         super().__init__(owner, cooldown=180, damage=30, kickback=0, shake=5.0, spread=0)
         self.num_projectiles = 8
 
     def auto_shoot(self, dt=1.0):
-        """LevelManager llama esto cada frame — dispara cuando el cooldown llega a 0."""
         if self.current_cooldown <= 0 and self.projectile_pool:
             if self.activate():
                 self.current_cooldown = self.cooldown
@@ -348,31 +287,24 @@ class NovaWeapon(Weapon):
     def activate(self, camera=None):
         if not self.projectile_pool:
             return False
-
         owner       = self.owner
         speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
         extra_pen   = getattr(owner, 'extra_penetration', 0)
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
         num         = self.num_projectiles
-
         for i in range(num):
             angle = (math.pi * 2 / num) * i
             px = owner.x + math.cos(angle) * 18
             py = owner.y + math.sin(angle) * 18
             p = self.projectile_pool.get(
                 px, py, angle,
-                speed=9 * speed_mult,
-                damage=final_dmg,
-                penetration=9999 + extra_pen,   # perfora infinitamente
-                lifetime=100,
-                image_type='circle'
+                speed=9 * speed_mult, damage=final_dmg,
+                penetration=9999 + extra_pen, lifetime=100, image_type='circle'
             )
             p.color = (220, 80, 255)
             p.size  = 9
             self._apply_player_proj_mods(p, base_size=9)
-
-        # Sacudida de cámara
         if camera:
             camera.add_shake(5.0)
         return True
@@ -380,47 +312,68 @@ class NovaWeapon(Weapon):
 
 class OrbitalWeapon(Weapon):
     """
-    Orbes Orbitales — N orbes girando alrededor del jugador continuamente.
+    Orbes Orbitales — empieza con 1 orbe, mejoras añaden más y los potencian.
 
-    · No usa la projectile_pool — los orbes son entidades lógicas propias.
-    · Al tocar a un enemigo: daño + fuerte retroceso (empuja a la multitud).
-    · Cooldown de 0.5 s por enemigo para no spamear daño.
-    · Se beneficia de global_damage_mult y knockback_mult.
-    · LevelManager._update_weapons() llama check_hits() para resolver colisiones.
+    · No usa projectile_pool — los orbes son entidades lógicas propias.
+    · Hitbox pequeño (orb_radius=10) y ajustable con mejoras.
+    · Variables de instancia: orbit_speed, orb_radius, hit_cooldown_max.
+    · Métodos de mejora llamados desde UpgradeScene:
+        add_orb()              → +1 orbe (máx 4)
+        increase_speed(mult)   → velocidad de rotación
+        increase_orbit_radius(v)→ radio de la órbita
+        increase_damage_mult(m) → daño base
 
-    OPTIMIZACIÓN MÓVIL:
-    · _glow_surf pre-allocada en __init__ y reutilizada en render().
-      Antes: 1 Surface(SRCALPHA) nueva por orbe por frame → 180 allocs/s a 60fps.
-      Ahora: 1 Surface creada al inicio; se reutiliza limpiándola con fill().
+    OPTIMIZACIÓN: _glow_surf pre-allocada, reconstruida solo si cambia orb_radius.
     """
-
-    ORB_RADIUS   = 15       # radio visual y de colisión del orbe
-    ORBIT_SPEED  = 0.05     # rad/frame
-    HIT_COOLDOWN = 35       # frames entre golpes al mismo enemigo
 
     def __init__(self, owner):
         super().__init__(owner, cooldown=0, damage=45, kickback=0, shake=0, spread=0)
-        self.num_orbs     = 3
-        self.orbit_radius = 95
-        self._angle       = 0.0
-        self._hit_cd: dict[int, float] = {}   # id(enemy) → frames restantes
+        self.num_orbs         = 1       # empieza con 1 orbe
+        self.orbit_radius     = 95      # radio de la órbita (px)
+        self.orb_radius       = 10      # radio visual + hitbox del orbe (era 15)
+        self.orbit_speed      = 0.05    # rad/frame
+        self.hit_cooldown_max = 35      # frames entre golpes al mismo enemigo
+        self._angle           = 0.0
+        self._hit_cd: dict[int, float] = {}
 
-        # ── Caché de glow ─────────────────────────────────────────────────
-        # gs = ORB_RADIUS * 3 = 45, diámetro = 90.
-        # Se crea una sola vez; render() la limpia y redibujar NO es necesario
-        # porque el glow es siempre el mismo círculo con el mismo color/alpha.
-        # Solo necesitamos crearla una vez y reutilizarla con blit.
-        gs = self.ORB_RADIUS * 3
+        self._rebuild_glow()
+
+    def _rebuild_glow(self):
+        """Reconstruye la surface de glow. Llamar solo cuando cambia orb_radius."""
+        gs = self.orb_radius * 3
         self._glow_surf = pygame.Surface((gs * 2, gs * 2), pygame.SRCALPHA)
         pygame.draw.circle(self._glow_surf, (50, 180, 255, 55), (gs, gs), gs)
-        self._glow_size = gs   # guardamos para el blit offset
+        self._glow_size = gs
 
+    # ── Métodos de mejora (llamados desde UpgradeScene) ─────────────────
+    def add_orb(self):
+        """Añade 1 orbe orbital. Máximo 4 en total."""
+        self.num_orbs = min(4, self.num_orbs + 1)
+
+    def increase_speed(self, mult: float):
+        """Multiplica la velocidad angular. Máximo 0.18 rad/frame."""
+        self.orbit_speed = min(0.18, self.orbit_speed * mult)
+
+    def increase_orbit_radius(self, amount: float):
+        """Amplía el radio de la órbita en px."""
+        self.orbit_radius += amount
+
+    def increase_damage_mult(self, mult: float):
+        """Multiplica el daño base de los orbes."""
+        self.damage = int(self.damage * mult)
+
+    def increase_orb_size(self, amount: float):
+        """Aumenta el radio visual del orbe y reconstruye el glow."""
+        self.orb_radius = min(20, self.orb_radius + amount)
+        self._rebuild_glow()
+
+    # ── Lógica ──────────────────────────────────────────────────────────
     def update(self, dt=1.0):
         super().update(dt)
-        self._angle += self.ORBIT_SPEED * dt
-        # Decrementar cooldowns de golpe
-        to_del = [k for k, v in self._hit_cd.items() if v <= dt]
-        for k in to_del:
+        self._angle += self.orbit_speed * dt
+        # Decrementar cooldowns de golpe (limpieza eficiente)
+        expired = [k for k, v in self._hit_cd.items() if v <= dt]
+        for k in expired:
             del self._hit_cd[k]
         for k in list(self._hit_cd):
             if k in self._hit_cd:
@@ -429,23 +382,27 @@ class OrbitalWeapon(Weapon):
     def get_orb_positions(self):
         owner = self.owner
         n     = self.num_orbs
+        angle = self._angle
+        r     = self.orbit_radius
+        tau_n = math.pi * 2 / n
         return [
             (
-                owner.x + math.cos(self._angle + (math.pi * 2 / n) * i) * self.orbit_radius,
-                owner.y + math.sin(self._angle + (math.pi * 2 / n) * i) * self.orbit_radius,
+                owner.x + math.cos(angle + tau_n * i) * r,
+                owner.y + math.sin(angle + tau_n * i) * r,
             )
             for i in range(n)
         ]
 
     def check_hits(self, enemies, knockback_mult=1.0):
         """
-        Detecta colisiones orbe-enemigo y devuelve lista de (enemy, damage).
-        Llamar desde LevelManager._update_weapons() cada frame.
+        Detecta colisiones orbe-enemigo → [(enemy, damage)].
+        Hitbox = orb_radius + 10px de margen (ajustable con mejoras de tamaño).
         """
         positions   = self.get_orb_positions()
         damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
         final_dmg   = self.damage * damage_mult
-        hit_r_sq    = (self.ORB_RADIUS + 14) ** 2   # margen para hitbox generosa
+        # Margen menor que antes (era +14) → hitbox más justo
+        hit_r_sq    = (self.orb_radius + 10) ** 2
 
         hits = []
         for ox, oy in positions:
@@ -458,8 +415,7 @@ class OrbitalWeapon(Weapon):
                 dx = enemy.x - ox
                 dy = enemy.y - oy
                 if dx * dx + dy * dy <= hit_r_sq:
-                    self._hit_cd[eid] = self.HIT_COOLDOWN
-                    # Knockback hacia afuera desde el orbe
+                    self._hit_cd[eid] = self.hit_cooldown_max
                     enemy.apply_knockback(ox, oy, force=9 * knockback_mult)
                     hits.append((enemy, final_dmg))
         return hits
@@ -468,27 +424,24 @@ class OrbitalWeapon(Weapon):
         return True   # siempre activo
 
     def render(self, screen, camera):
-        gs = self._glow_size   # = ORB_RADIUS * 3
+        gs = self._glow_size
+        r  = self.orb_radius
 
         for ox, oy in self.get_orb_positions():
             sp = camera.apply_coords(ox, oy)
             cx, cy = int(sp[0]), int(sp[1])
-            r  = self.ORB_RADIUS
 
-            # ── Glow: blit de la superficie pre-allocada (sin crear Surface) ──
+            # Glow pre-allocado (sin crear Surface por frame)
             screen.blit(self._glow_surf, (cx - gs, cy - gs))
-
-            # Cuerpo del orbe (dibujo directo, sin Surface intermedia)
             pygame.draw.circle(screen, (100, 210, 255), (cx, cy), r)
-            pygame.draw.circle(screen, (220, 245, 255), (cx, cy), r // 2)
+            pygame.draw.circle(screen, (220, 245, 255), (cx, cy), max(1, r // 2))
             pygame.draw.circle(screen, (180, 230, 255), (cx, cy), r, 2)
 
 
 class BoomerangWeapon(Weapon):
-    """
-    Boomerang Arcano — un único proyectil de ida y vuelta.
-    """
-    MAX_DIST = 400  # Aumentado el px antes de invertir dirección
+    """Boomerang Arcano — proyectil de ida y vuelta con pierce infinito."""
+
+    MAX_DIST = 400
 
     def __init__(self, owner):
         super().__init__(owner, cooldown=80, damage=60, kickback=0, shake=3.0, spread=0)
@@ -506,14 +459,12 @@ class BoomerangWeapon(Weapon):
                     dx = p.x - self._start_x
                     dy = p.y - self._start_y
                     if dx * dx + dy * dy >= self.MAX_DIST ** 2:
-                        # Invertir dirección y cambiar color para indicar el regreso
                         p.vel_x  = -p.vel_x
                         p.vel_y  = -p.vel_y
-                        p.hit_enemies.clear()   # puede volver a dañar en el regreso
+                        p.hit_enemies.clear()
                         p.color  = (255, 140, 30)
                         self._returning = True
                 else:
-                    # Cerca del jugador → el boomerang es recogido
                     owner = self.owner
                     dx = p.x - owner.x
                     dy = p.y - owner.y
@@ -544,28 +495,21 @@ class BoomerangWeapon(Weapon):
             return False
         if not self.projectile_pool:
             return False
-
         owner       = self.owner
         speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
         extra_pen   = getattr(owner, 'extra_penetration', 0)
         damage_mult = getattr(owner, 'global_damage_mult', 1.0)
         final_dmg   = int(self.damage * damage_mult)
-
         angle = owner.angle
         px = owner.x + math.cos(angle) * 24
         py = owner.y + math.sin(angle) * 24
-
         p = self.projectile_pool.get(
             px, py, angle,
-            speed=15 * speed_mult,
-            damage=final_dmg,
-            penetration=9999 + extra_pen,
-            lifetime=800,
-            image_type='square'
+            speed=15 * speed_mult, damage=final_dmg,
+            penetration=9999 + extra_pen, lifetime=800, image_type='square'
         )
         p.color         = (255, 220, 60)
         self._apply_player_proj_mods(p, base_size=11)
-
         self._proj      = p
         self._start_x   = owner.x
         self._start_y   = owner.y

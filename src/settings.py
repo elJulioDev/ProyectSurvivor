@@ -1,11 +1,25 @@
 """
-Configuraciones globales del juego.
+Configuraciones globales del juego — v3
 
-NUEVAS MEJORAS AÑADIDAS:
-  · unlock_nova       → Nova de Espinas (auto-disparo, 8 direcciones, pierce infinito)
-  · unlock_orbital    → Orbes Orbitales (3 orbes girando, knockback pasivo)
-  · unlock_boomerang  → Boomerang Arcano (ida y vuelta, pierce infinito)
-  · aura_knockback    → El Aura empuja activamente a los enemigos hacia afuera
+CAMBIOS DE BALANCE:
+  Supervivencia:
+    · 'health'        → max_stacks: 6 (antes ilimitado)
+    · 'max_health_big'→ max_stacks: 2 (era 3), +50 HP (era +60)
+    · 'regen'         → value: 0.5/s (era 0.8), max_stacks: 5
+    · 'armor'         → max_stacks: 4 (era 5)
+    · 'lifesteal'     → value: 0.20 (era 0.25), max_stacks: 3 (era 4)
+    · 'iframes'       → value: 1.4 (era 1.6), max_stacks: 2 (era 3)
+    · 'emergency_regen'→ value: 3.0 HP/s (era 5.0)
+
+NUEVAS MEJORAS:
+  Orbes Orbitales (requieren 'unlock_orbital'):
+    · 'orbital_add_orb'   → +1 orbe (máx stack 3, total 4 orbes)
+    · 'orbital_speed'     → +40% velocidad de rotación
+    · 'orbital_range'     → +25px radio orbital
+    · 'orbital_damage'    → +50% daño de los orbes
+
+  Aura Repulsora (requiere 'aura_knockback_unlocked'):
+    · 'aura_pulse_rapido' → -1s al intervalo de pulso (mín 1s, máx 3 stacks)
 """
 
 # CONFIGURACIÓN DE PANTALLA
@@ -14,8 +28,8 @@ BASE_HEIGHT = 720
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
-WORLD_WIDTH  = 12000   # 2400 * 5
-WORLD_HEIGHT = 9000    # 1800 * 5
+WORLD_WIDTH  = 12000
+WORLD_HEIGHT = 9000
 
 FPS = 60
 TITLE = "ProyectSurvivor"
@@ -66,7 +80,7 @@ UPGRADES = {
     },
     'speed': {
         'name': 'Adrenalina',
-        'desc': '+12% velocidad de movimiento (velocidad real y aceleracion). Apilable.',
+        'desc': '+12% velocidad de movimiento y aceleracion. Apilable hasta 3 veces.',
         'type': 'stat',
         'stat_name': 'max_speed',
         'value': 1.12,
@@ -89,7 +103,7 @@ UPGRADES = {
     },
     'dash_duration': {
         'name': 'Dash Prolongado',
-        'desc': 'El Dash recorre un 40% mas de distancia. Cruza grupos enteros de zombies.',
+        'desc': 'El Dash recorre un 40% mas de distancia.',
         'type': 'stat',
         'stat_name': 'dash_duration',
         'value': 1.4,
@@ -98,8 +112,6 @@ UPGRADES = {
         'rarity': 'rare',
         'category': 'movement',
     },
-
-    # ARTES OSCURAS — habilidad Ninja del Dash
     'ninja_dash': {
         'name': 'Artes Oscuras',
         'desc': (
@@ -115,78 +127,80 @@ UPGRADES = {
         'category': 'movement',
     },
 
-    # SUPERVIVENCIA
+    # SUPERVIVENCIA (nerfed para mejor balance)
     'health': {
         'name': 'Vitalidad',
-        'desc': '+25 HP maximo. Mas margen para errores contra la horda.',
+        'desc': '+25 HP maximo. Maximo 6 stacks (+150 HP total).',
         'type': 'stat',
         'stat_name': 'max_health',
         'value': 25,
         'stackable': True,
+        'max_stacks': 6,
         'rarity': 'common',
         'category': 'survival',
     },
     'regen': {
         'name': 'Regeneracion',
-        'desc': '+0.8 HP por segundo. Recuperate pasivamente entre enfrentamientos.',
+        'desc': '+0.5 HP por segundo. Maximo 5 stacks (+2.5 HP/s total).',
         'type': 'stat',
         'stat_name': 'health_regen',
-        'value': 0.8,
-        'stackable': True,
-        'rarity': 'uncommon',
-        'category': 'survival',
-    },
-    'armor': {
-        'name': 'Armadura',
-        'desc': '-10% al daño recibido. Cada punto de vida importa cuando hay cientos de zombies.',
-        'type': 'stat',
-        'stat_name': 'damage_reduction',
-        'value': 0.10,
+        'value': 0.5,
         'stackable': True,
         'max_stacks': 5,
         'rarity': 'uncommon',
         'category': 'survival',
     },
-    'lifesteal': {
-        'name': 'Vampirismo',
-        'desc': '25% de probabilidad de recuperar 5 HP al matar un zombie. Apilable hasta 100%.',
+    'armor': {
+        'name': 'Armadura',
+        'desc': '-10% al daño recibido. Maximo 4 stacks (40% reduccion total).',
         'type': 'stat',
-        'stat_name': 'lifesteal_chance',
-        'value': 0.25,
+        'stat_name': 'damage_reduction',
+        'value': 0.10,
         'stackable': True,
         'max_stacks': 4,
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
+    'lifesteal': {
+        'name': 'Vampirismo',
+        'desc': '20% de probabilidad de recuperar 5 HP al matar un zombie. Max 3 stacks.',
+        'type': 'stat',
+        'stat_name': 'lifesteal_chance',
+        'value': 0.20,
+        'stackable': True,
+        'max_stacks': 3,
         'rarity': 'rare',
         'category': 'survival',
     },
     'emergency_regen': {
         'name': 'Segundo Aliento',
-        'desc': '+5 HP/s adicional cuando tu vida baja del 25%. Un seguro de vida.',
+        'desc': '+3 HP/s adicional cuando tu vida baja del 25%. Un seguro de vida.',
         'type': 'stat',
         'stat_name': 'emergency_regen',
-        'value': 5.0,
+        'value': 3.0,
         'stackable': False,
         'rarity': 'epic',
         'category': 'survival',
     },
     'iframes': {
         'name': 'Esquiva Fantasma',
-        'desc': '+60% duracion de invulnerabilidad tras recibir daño. Mas tiempo para reaccionar.',
+        'desc': '+40% duracion de invulnerabilidad tras recibir daño. Maximo 2 stacks.',
         'type': 'stat',
         'stat_name': 'invulnerable_mult',
-        'value': 1.6,
+        'value': 1.4,
         'stackable': True,
-        'max_stacks': 3,
+        'max_stacks': 2,
         'rarity': 'uncommon',
         'category': 'survival',
     },
     'max_health_big': {
         'name': 'Musculatura de Acero',
-        'desc': '+60 HP maximo de golpe. Para quien prefiere absorber impactos.',
+        'desc': '+50 HP maximo de golpe. Maximo 2 stacks.',
         'type': 'stat',
         'stat_name': 'max_health',
-        'value': 60,
+        'value': 50,
         'stackable': True,
-        'max_stacks': 3,
+        'max_stacks': 2,
         'rarity': 'rare',
         'category': 'survival',
     },
@@ -196,7 +210,7 @@ UPGRADES = {
         'name': 'Aura de Espinas',
         'desc': (
             'Genera un campo de energia violeta que inflige 12 DPS a todos los '
-            'zombies cercanos. Radio base: 80px. Apilable para mas daño.'
+            'zombies cercanos. Radio base: 80px.'
         ),
         'type': 'stat',
         'stat_name': 'aura_damage',
@@ -208,10 +222,7 @@ UPGRADES = {
     },
     'aura_radio': {
         'name': 'Campo Expandido',
-        'desc': (
-            '+40px al radio del Aura de Espinas. Cubre mas terreno '
-            'y elimina grupos densos mas facilmente.'
-        ),
+        'desc': '+40px al radio del Aura de Espinas.',
         'type': 'stat',
         'stat_name': 'aura_radius',
         'value': 40.0,
@@ -223,10 +234,7 @@ UPGRADES = {
     },
     'aura_sobrecarga': {
         'name': 'Sobrecarga del Aura',
-        'desc': (
-            'DUPLICA el daño del Aura de Espinas. Para builds que confian '
-            'en el daño en area mas que en las armas.'
-        ),
+        'desc': 'DUPLICA el daño del Aura de Espinas.',
         'type': 'stat',
         'stat_name': 'aura_damage_mult',
         'value': 2.0,
@@ -235,13 +243,11 @@ UPGRADES = {
         'rarity': 'epic',
         'category': 'survival',
     },
-
-    # NUEVA: Knockback del Aura
     'aura_knockback': {
         'name': 'Aura Repulsora',
         'desc': (
-            'El Aura de Espinas empuja ACTIVAMENTE a los enemigos hacia afuera. '
-            'Crea espacio vital en hordas de +1000. Requiere Aura activa.'
+            'El Aura emite un PULSO cada 4 segundos que lanza a los enemigos '
+            'violentamente hacia afuera. Evita que se estanquen en el limite del campo.'
         ),
         'type': 'stat',
         'stat_name': 'aura_knockback',
@@ -251,11 +257,26 @@ UPGRADES = {
         'rarity': 'uncommon',
         'category': 'survival',
     },
+    'aura_pulse_rapido': {
+        'name': 'Pulso Acelerado',
+        'desc': (
+            'Reduce en 1s el intervalo del Pulso Repulsor del Aura. '
+            'Maximo 3 stacks (de 4s → 1s entre pulsos).'
+        ),
+        'type': 'stat',
+        'stat_name': 'aura_knockback_interval',
+        'value': -1.0,          # resta 1 segundo al intervalo
+        'stackable': True,
+        'max_stacks': 3,
+        'requires': 'aura_knockback_unlocked',
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
 
     # ARMAS — GLOBALES
     'weapon_damage': {
         'name': 'Potencia de Fuego',
-        'desc': '+15% daño de TODAS las armas. Afecta pistola, escopeta, rifle y laser.',
+        'desc': '+15% daño de TODAS las armas.',
         'type': 'weapon',
         'stat_name': 'global_damage_mult',
         'value': 1.15,
@@ -265,7 +286,7 @@ UPGRADES = {
     },
     'weapon_damage_big': {
         'name': 'Calibre Mayor',
-        'desc': '+30% daño de todas las armas. Una mejora masiva para todo tu arsenal.',
+        'desc': '+30% daño de todas las armas.',
         'type': 'weapon',
         'stat_name': 'global_damage_mult',
         'value': 1.30,
@@ -276,7 +297,7 @@ UPGRADES = {
     },
     'fire_rate': {
         'name': 'Cadencia',
-        'desc': '+12% velocidad de disparo global. Mas plomo en menos tiempo.',
+        'desc': '+12% velocidad de disparo global.',
         'type': 'weapon',
         'stat_name': 'global_cooldown_mult',
         'value': 0.88,
@@ -286,7 +307,7 @@ UPGRADES = {
     },
     'fire_rate_big': {
         'name': 'Gatillo Mecanico',
-        'desc': '+25% velocidad de disparo. El estruendo no para.',
+        'desc': '+25% velocidad de disparo.',
         'type': 'weapon',
         'stat_name': 'global_cooldown_mult',
         'value': 0.75,
@@ -297,7 +318,7 @@ UPGRADES = {
     },
     'projectile_speed': {
         'name': 'Balas Supersonicas',
-        'desc': '+20% velocidad de todos los proyectiles. Mas dificil de esquivar para los zombies.',
+        'desc': '+20% velocidad de todos los proyectiles.',
         'type': 'weapon',
         'stat_name': 'projectile_speed_mult',
         'value': 1.2,
@@ -308,7 +329,7 @@ UPGRADES = {
     },
     'penetration': {
         'name': 'Municion Perforante',
-        'desc': 'Los proyectiles atraviesan +1 zombie adicional. Elimina grupos apretados.',
+        'desc': 'Los proyectiles atraviesan +1 zombie adicional.',
         'type': 'weapon',
         'stat_name': 'extra_penetration',
         'value': 1,
@@ -319,7 +340,7 @@ UPGRADES = {
     },
     'projectile_size': {
         'name': 'Balas Expansivas',
-        'desc': '+5% tamaño visual de balas. Impacto mas visible sin alterar la precision.',
+        'desc': '+5% tamaño visual de balas.',
         'type': 'weapon',
         'stat_name': 'projectile_size_mult',
         'value': 1.05,
@@ -330,7 +351,7 @@ UPGRADES = {
     },
     'knockback': {
         'name': 'Impacto Brutal',
-        'desc': '+50% fuerza de retroceso al impactar zombies. Crea espacio cuando mas lo necesitas.',
+        'desc': '+50% fuerza de retroceso al impactar zombies.',
         'type': 'weapon',
         'stat_name': 'knockback_mult',
         'value': 1.5,
@@ -340,7 +361,7 @@ UPGRADES = {
         'category': 'weapons',
     },
 
-    # ARMAS — DESBLOQUEOS ORIGINALES
+    # ARMAS — DESBLOQUEOS
     'unlock_shotgun': {
         'name': 'Escopeta',
         'desc': 'Desbloquea la escopeta (Tecla 2). 8 perdigones, devastadora a corto rango.',
@@ -369,16 +390,13 @@ UPGRADES = {
         'name': 'Rifle de Caza',
         'desc': (
             'Desbloquea el Francotirador (Tecla 5). '
-            'Maxima penetracion (8 zombies), 110 de daño por disparo, '
-            'proyectil ultrarapido y preciso. Recarga lenta.'
+            'Maxima penetracion (8 zombies), 110 de daño por disparo.'
         ),
         'type': 'unlock_weapon',
         'weapon_class': 'SniperWeapon',
         'rarity': 'epic',
         'category': 'weapons',
     },
-
-    # ARMAS — NUEVOS DESBLOQUEOS (anti-horda)
     'unlock_nova': {
         'name': 'Nova de Espinas',
         'desc': (
@@ -391,11 +409,10 @@ UPGRADES = {
         'category': 'weapons',
     },
     'unlock_orbital': {
-        'name': 'Orbes Orbitales',
+        'name': 'Orbe Orbital',
         'desc': (
-            '3 orbes girando a tu alrededor constantemente. '
-            'Daño por contacto + fuerte retroceso. '
-            'Crea un muro fisico contra las hordas mas densas.'
+            '1 orbe girando a tu alrededor constantemente. '
+            'Daño por contacto + retroceso. Mejora con upgrades de Orbital.'
         ),
         'type': 'unlock_weapon',
         'weapon_class': 'OrbitalWeapon',
@@ -406,8 +423,7 @@ UPGRADES = {
         'name': 'Boomerang Arcano',
         'desc': (
             'Lanza un proyectil que perfora infinitamente, '
-            'da la vuelta al llegar a 330px y regresa danando de nuevo. '
-            'Devastador contra filas densas de enemigos.'
+            'da la vuelta y regresa danando de nuevo.'
         ),
         'type': 'unlock_weapon',
         'weapon_class': 'BoomerangWeapon',
@@ -415,10 +431,63 @@ UPGRADES = {
         'category': 'weapons',
     },
 
+    # ORBES ORBITALES — MEJORAS (requieren unlock_orbital)
+    'orbital_add_orb': {
+        'name': 'Orbe Extra',
+        'desc': (
+            'Añade un orbe orbital adicional. Maximo 4 orbes en total. '
+            'Mas cobertura, mas presion sobre los enemigos cercanos.'
+        ),
+        'type': 'orbital',
+        'stat_name': 'orbital_add_orb',
+        'value': 1,
+        'stackable': True,
+        'max_stacks': 3,
+        'requires': 'orbital_unlocked',
+        'rarity': 'rare',
+        'category': 'weapons',
+    },
+    'orbital_speed': {
+        'name': 'Orbita Acelerada',
+        'desc': '+40% velocidad de rotacion de los orbes. Mas dificil de evadir.',
+        'type': 'orbital',
+        'stat_name': 'orbital_speed',
+        'value': 1.4,
+        'stackable': True,
+        'max_stacks': 3,
+        'requires': 'orbital_unlocked',
+        'rarity': 'uncommon',
+        'category': 'weapons',
+    },
+    'orbital_range': {
+        'name': 'Orbita Expandida',
+        'desc': '+25px al radio orbital. Cubre mas area y protege de mas enemigos.',
+        'type': 'orbital',
+        'stat_name': 'orbital_range',
+        'value': 25.0,
+        'stackable': True,
+        'max_stacks': 3,
+        'requires': 'orbital_unlocked',
+        'rarity': 'uncommon',
+        'category': 'weapons',
+    },
+    'orbital_damage': {
+        'name': 'Orbes Cargados',
+        'desc': '+50% daño de los orbes orbitales.',
+        'type': 'orbital',
+        'stat_name': 'orbital_damage',
+        'value': 1.5,
+        'stackable': True,
+        'max_stacks': 3,
+        'requires': 'orbital_unlocked',
+        'rarity': 'rare',
+        'category': 'weapons',
+    },
+
     # XP Y GEMAS
     'xp_magnet': {
         'name': 'Iman de XP',
-        'desc': '+40% radio de atraccion de gemas. Recoge experiencia desde mas lejos.',
+        'desc': '+40% radio de atraccion de gemas.',
         'type': 'xp',
         'stat_name': 'magnet_range_mult',
         'value': 1.4,
@@ -429,7 +498,7 @@ UPGRADES = {
     },
     'xp_boost': {
         'name': 'Estudioso',
-        'desc': '+25% experiencia obtenida de todas las fuentes. Sube de nivel mas rapido.',
+        'desc': '+25% experiencia obtenida de todas las fuentes.',
         'type': 'xp',
         'stat_name': 'xp_mult',
         'value': 1.25,
@@ -439,7 +508,7 @@ UPGRADES = {
     },
     'xp_on_kill': {
         'name': 'Coleccionista',
-        'desc': '+8 XP bonus directo por cada zombie eliminado. No necesitas recoger gema.',
+        'desc': '+8 XP bonus directo por cada zombie eliminado.',
         'type': 'xp',
         'stat_name': 'xp_on_kill_bonus',
         'value': 8,
@@ -449,7 +518,7 @@ UPGRADES = {
     },
     'magnet_speed': {
         'name': 'Tractor de Gemas',
-        'desc': 'Las gemas vuelan un 60% mas rapido hacia ti. Recoleccion casi instantanea.',
+        'desc': 'Las gemas vuelan un 60% mas rapido hacia ti.',
         'type': 'xp',
         'stat_name': 'magnet_speed_mult',
         'value': 1.6,
@@ -460,7 +529,7 @@ UPGRADES = {
     },
     'xp_magnet_huge': {
         'name': 'Campo Magnetico',
-        'desc': 'DUPLICA el radio de atraccion de gemas. Practicamente una aspiradora de XP.',
+        'desc': 'DUPLICA el radio de atraccion de gemas.',
         'type': 'xp',
         'stat_name': 'magnet_range_mult',
         'value': 2.0,
@@ -470,7 +539,7 @@ UPGRADES = {
     },
     'xp_boost_big': {
         'name': 'Genio Tactico',
-        'desc': '+50% experiencia obtenida. El camino rapido a las mejoras mas poderosas.',
+        'desc': '+50% experiencia obtenida.',
         'type': 'xp',
         'stat_name': 'xp_mult',
         'value': 1.5,

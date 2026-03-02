@@ -4,6 +4,7 @@ GameplayScene optimizado:
 - dt siempre normalizado a unidades de 60fps (1.0 = 1 frame a 60fps).
 - LevelManager.set_target_fps() llamado al iniciar para escalar intervalos.
 - F6: ciclo entre 60 / 120 / 240 / 0fps en tiempo real.
+- F7: [DEBUG] aplica TODAS las mejoras al jugador + nivel 999.
 - Cruce de delta-time máximo reducido a 2.5 para evitar micro-freezes.
 
 PARCHE 2: MOBILE_CAMERA_ZOOM aplicado en on_enter() cuando se detecta móvil.
@@ -11,7 +12,7 @@ PARCHE 2: MOBILE_CAMERA_ZOOM aplicado en on_enter() cuando se detecta móvil.
 import pygame
 import math
 from scenes.scene   import Scene
-from settings       import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE
+from settings       import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE, UPGRADES
 from managers.level_manager  import LevelManager
 from ui.hud          import HUD
 from ui.mobile_controls import MobileControls
@@ -96,6 +97,12 @@ class GameplayScene(Scene):
             self.level.set_target_fps(self.target_fps if self.target_fps > 0 else 60)
             return
 
+        # F7: aplicar todas las mejoras + nivel 999
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F7:
+            if self.level.player:
+                self._apply_all_upgrades_debug()
+            return
+
         vpos = self._vpos_from_event(event)
 
         if self.mobile.enabled and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -124,6 +131,134 @@ class GameplayScene(Scene):
                 self._open_pause()
             elif event.key == pygame.K_x:
                 self.show_debug = not self.show_debug
+
+    def _apply_all_upgrades_debug(self):
+        """
+        [F7 DEBUG] Aplica TODAS las mejoras disponibles en UPGRADES al jugador
+        y lo sube al nivel 999 sin pasar por la pantalla de selección.
+
+        Reglas:
+          · Mejoras con max_stacks → se aplican hasta el tope.
+          · Mejoras sin max_stacks y stackable=False → se aplican 1 vez.
+          · Desbloqueos de armas → se desbloquean si no lo están ya.
+          · El jugador se pone en nivel 999 y pending_level_ups = 0.
+        """
+        player    = self.level.player
+        proj_pool = self.level.projectile_pool
+
+        print("\n========== [F7 DEBUG] APLICANDO TODAS LAS MEJORAS ==========")
+
+        for key, upg in UPGRADES.items():
+            utype = upg['type']
+
+            # ── Desbloqueo de dash ────────────────────────────────────────
+            if utype == 'unlock' and key == 'dash':
+                if not player.dash_unlocked:
+                    player.dash_unlocked = True
+                    player.upgrade_counts[key] = 1
+                    print(f"  ✅ {upg['name']} desbloqueado")
+                continue
+
+            # ── Desbloqueo de arma ───────────────────────────────────────
+            if utype == 'unlock_weapon':
+                wc = upg['weapon_class']
+                if wc not in player.unlocked_weapons:
+                    player.add_weapon(wc, proj_pool)
+                    player.upgrade_counts[key] = 1
+                    print(f"  ✅ Arma desbloqueada: {upg['name']}")
+                continue
+
+            # ── Mejoras de stat / weapon / xp ────────────────────────────
+            max_stacks = upg.get('max_stacks')
+            stackable  = upg.get('stackable', False)
+
+            if max_stacks is not None:
+                # Aplicar hasta el máximo de stacks
+                already = player.upgrade_counts.get(key, 0)
+                times   = max_stacks - already
+            elif stackable:
+                # Stackable sin límite explícito → aplicar 1 vez en debug
+                already = player.upgrade_counts.get(key, 0)
+                times   = 1 if already == 0 else 0
+            else:
+                # No stackable → solo 1 vez
+                already = player.upgrade_counts.get(key, 0)
+                times   = 1 if already == 0 else 0
+
+            if times <= 0:
+                continue
+
+            for _ in range(times):
+                self._apply_single_upgrade(player, key, upg)
+            player.upgrade_counts[key] = player.upgrade_counts.get(key, 0) + times
+            print(f"  ✅ [{upg.get('rarity','?').upper()}] {upg['name']}  ×{times}")
+
+        # ── Nivel 999 sin menú de mejoras pendiente ──────────────────────
+        player.level              = 999
+        player.pending_level_ups  = 0
+        player.experience         = 0
+        player.experience_next_level = 999999   # prácticamente infinito
+
+        print("=============================================================")
+        print(f"[F7 DEBUG] ¡Listo! Jugador en nivel 999 con todas las mejoras.\n")
+
+    def _apply_single_upgrade(self, player, key, upg):
+        """Aplica UNA instancia de una mejora al jugador (lógica extraída de UpgradeScene)."""
+        utype = upg['type']
+        proj_pool = self.level.projectile_pool
+
+        if utype == 'stat':
+            sname = upg['stat_name']
+            val   = upg['value']
+
+            if sname == 'max_speed':
+                player.max_speed *= val
+                player.accel     *= val
+            elif sname == 'max_health':
+                player.max_health += val
+                player.health = min(player.health + val, player.max_health)
+            elif sname == 'health_regen':
+                player.health_regen += val
+            elif sname == 'damage_reduction':
+                player.damage_reduction = min(0.75, player.damage_reduction + val)
+            elif sname == 'lifesteal_chance':
+                player.lifesteal_chance = min(1.0, player.lifesteal_chance + val)
+            elif sname == 'emergency_regen':
+                player.emergency_regen += val
+            elif sname == 'invulnerable_mult':
+                player.invulnerable_mult *= val
+            elif sname == 'dash_cooldown':
+                player.dash_cooldown = max(10, int(player.dash_cooldown * val))
+            elif sname == 'dash_duration':
+                player.dash_duration = int(player.dash_duration * val)
+            elif sname == 'ninja_dash':
+                player.ninja_dash = True
+            elif sname == 'aura_damage':
+                player.aura_damage += val
+            elif sname == 'aura_radius':
+                player.aura_radius += val
+            elif sname == 'aura_damage_mult':
+                player.aura_damage *= val
+            elif sname == 'aura_knockback':
+                player.aura_knockback = val
+
+        elif utype == 'weapon':
+            sname = upg['stat_name']
+            val   = upg['value']
+            if sname == 'global_damage_mult':      player.global_damage_mult    *= val
+            elif sname == 'global_cooldown_mult':  player.global_cooldown_mult  *= val
+            elif sname == 'projectile_speed_mult': player.projectile_speed_mult *= val
+            elif sname == 'extra_penetration':     player.extra_penetration     += int(val)
+            elif sname == 'projectile_size_mult':  player.projectile_size_mult  *= val
+            elif sname == 'knockback_mult':        player.knockback_mult        *= val
+
+        elif utype == 'xp':
+            sname = upg['stat_name']
+            val   = upg['value']
+            if sname == 'magnet_range_mult':    player.magnet_range_mult *= val
+            elif sname == 'xp_mult':            player.xp_mult           *= val
+            elif sname == 'xp_on_kill_bonus':   player.xp_on_kill_bonus  += int(val)
+            elif sname == 'magnet_speed_mult':  player.magnet_speed_mult *= val
 
     def _open_pause(self):
         from scenes.pause import PauseScene
@@ -244,7 +379,7 @@ class GameplayScene(Scene):
             f"Kills este frame: {d.get('kills_this_frame', 0)}  |  Gemas XP: {d['gems_count']}",
             f"Chunks: {d.get('chunks_active', '?')} activos / {d.get('chunks_total', '?')} en RAM  |  Zoom: {self.level.camera.zoom:.2f}",
             f"Móvil: {mobile_str}",
-            f"[X] Toggle Debug",
+            f"[X] Toggle Debug  |  [F7] Todas las mejoras",
         ]
         y = 110
         for text in texts:

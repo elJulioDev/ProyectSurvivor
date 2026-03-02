@@ -1,13 +1,8 @@
 """
 Enemy optimizado:
-- Glow del Exploder: caché de superficies por (radius_bucket, alpha_bucket)
-  → elimina 1 Surface() allocation por exploder por frame.
-- AI anti-clustering mejorada:
-    · Carril determinista por enemigo (offset lateral único fijo desde spawn)
-    · Separación cuadrática con radio ampliado (4x radio)
-    · Predicción del jugador (apuntan a posición futura, no actual)
-- Tank: special=None, sin proyectiles de roca
-- Exploder: size_mult 0.8→1.4, speed_mult 2.1→0.75 (más grande y lento)
+- Glow del Exploder: caché de superficies por (radius_bucket, alpha_bucket).
+- AI anti-clustering con carril determinista, separación cuadrática, predicción del jugador.
+- damage_mult: escala el daño base según el nivel del jugador (Vampire Survivors style).
 """
 import pygame
 import math
@@ -18,12 +13,9 @@ from settings import (
 )
 
 SPRITE_CACHE: dict = {}
-
-# Cache de glow surfaces: (radius_bucket, alpha_bucket) -> Surface
 _GLOW_CACHE: dict = {}
 
 def _get_glow_surface(radius: int, alpha: int) -> pygame.Surface:
-    """Crea o reutiliza una superficie de glow circular."""
     rb = (radius + 4) // 5 * 5
     ab = max(0, min(255, (alpha + 7) // 15 * 15))
     key = (rb, ab)
@@ -59,7 +51,6 @@ class Enemy:
             'special': None, 'special_cooldown': 0,
         },
         'exploder': {
-            # NERF: más grande (0.8→1.4) y más lento (2.1→0.75)
             'size_mult': 1.4,  'health': 70,  'speed_mult': 0.75, 'damage': 0,
             'color': (255, 80, 20),   'points': 22,
             'special': 'explode', 'special_cooldown': 0,
@@ -71,7 +62,8 @@ class Enemy:
         },
     }
 
-    def __init__(self, x, y, speed_multiplier=1.0, enemy_type='normal', health_mult=1.0):
+    def __init__(self, x, y, speed_multiplier=1.0, enemy_type='normal',
+                 health_mult=1.0, damage_mult=1.0):
         self.x = x
         self.y = y
         self.enemy_type = enemy_type
@@ -81,7 +73,7 @@ class Enemy:
         self.size = int(ENEMY_SIZE * type_data['size_mult'])
         self.base_speed = ENEMY_SPEED * speed_multiplier * type_data['speed_mult']
         self.color  = type_data['color']
-        self.damage = type_data['damage']
+        self.damage = max(1, int(type_data['damage'] * damage_mult))
         self.max_health = int(type_data['health'] * health_mult)
         self.health = self.max_health
         self.points = type_data['points']
@@ -121,20 +113,16 @@ class Enemy:
         self.bleed_drip_cooldown = 0
 
         self.charge_level = 0.0
-
-        # Carril determinista: valor en [-1, 1] único por instancia.
-        # Basado en la posición de spawn → cada enemigo tiene su propio
-        # "carril" lateral de aproximación, creando patrón en abanico.
         self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     # ------------------------------------------------------------------
-    def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None, health_mult=1.0):
+    def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None,
+                health_mult=1.0, damage_mult=1.0):
         if enemy_type and enemy_type != self.enemy_type:
             self.enemy_type = enemy_type
             type_data = self.TYPES[enemy_type]
             self.size   = int(ENEMY_SIZE * type_data['size_mult'])
             self.color  = type_data['color']
-            self.damage = type_data['damage']
             self.points = type_data['points']
             self.special = type_data.get('special', None)
             self.special_cooldown_max = type_data.get('special_cooldown', 0)
@@ -155,6 +143,7 @@ class Enemy:
         self.base_speed = ENEMY_SPEED * speed_multiplier * type_data['speed_mult']
         self.max_health = int(type_data['health'] * health_mult)
         self.health     = self.max_health
+        self.damage     = max(1, int(type_data['damage'] * damage_mult))
         self.speed_variance = random.uniform(0.9, 1.1)
         self.special_cooldown_timer = (
             random.randint(0, max(1, self.special_cooldown_max // 2))
@@ -169,8 +158,6 @@ class Enemy:
         self.bleed_drip_cooldown = 0
         self.attack_cooldown = 0
         self.charge_level = 0.0
-
-        # Recalcular carril con nueva posición de spawn
         self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     def teleport_to(self, x, y):
@@ -179,7 +166,6 @@ class Enemy:
         self.rect.center = (int(x), int(y))
         self.vx = self.vy = 0.0
         self.knockback_x = self.knockback_y = 0.0
-        # Nuevo carril al teletransportarse
         self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     def _get_cached_sprite(self, size, total_size, color):
@@ -188,7 +174,6 @@ class Enemy:
             offset = (total_size - size) // 2
             draw_rect = pygame.Rect(offset, offset, size, size)
             border_color = tuple(max(0, c - 50) for c in color)
-
             center_size = max(2, size // 3)
             c_pos = offset + (size - center_size) // 2
             center_rect = (c_pos, c_pos, center_size, center_size)
@@ -204,37 +189,17 @@ class Enemy:
             pygame.draw.rect(surf_flash, border_color, center_rect)
 
             SPRITE_CACHE[key] = (surf, surf_flash)
-
         return SPRITE_CACHE[key]
 
     def update_ai(self, player_pos, spatial_grid, player_vel=None):
-        """
-        IA anti-clustering con tres mecanismos combinados:
-
-        1. PREDICCIÓN DEL JUGADOR
-           Cada enemigo apunta a donde ESTARÁ el jugador en unos frames,
-           no donde está ahora. Enemigos de distintos ángulos predicen
-           posiciones levemente distintas → se dispersan sin lógica extra.
-
-        2. CARRIL DETERMINISTA (_lane)
-           Cada enemigo tiene un offset lateral fijo [-1..1] calculado
-           desde su posición de spawn. Todos los 'lane=+0.5' van por un
-           lado, los 'lane=-0.5' por el otro → patrón en abanico natural.
-
-        3. SEPARACIÓN CUADRÁTICA AMPLIADA
-           Radio = 4× el radio del enemigo. Fuerza ∝ overlap².
-           Suave cuando están lejos, muy agresiva cuando se tocan.
-        """
         if not self.is_alive:
             return
 
         ex, ey = self.x, self.y
         px, py = player_pos
 
-        # --- 1. PREDICCIÓN ---
         if player_vel is not None:
             pvx, pvy = player_vel
-            # Tiempo de predicción: proporcional a la distancia, limitado
             raw_dist = math.sqrt((px - ex)**2 + (py - ey)**2)
             predict_t = min(18.0, raw_dist / max(1.0, self.base_speed * 2.5))
             target_x = px + pvx * predict_t * 0.55
@@ -252,9 +217,7 @@ class Enemy:
         dir_x = dx * inv_dist
         dir_y = dy * inv_dist
 
-        # Distancia real al jugador para lógica de ataque/rango
         real_dist_sq = (px - ex)**2 + (py - ey)**2
-
         special = self.special
 
         if special == 'spit':
@@ -277,11 +240,6 @@ class Enemy:
                 if real_dist_sq > attack_range_sq else 0.0
             )
 
-        # --- 2. SEPARACIÓN CUADRÁTICA AMPLIADA ---
-        # ANTI-JITTER: tres medidas combinadas:
-        #   a) Fuerza reducida a 0.18 (era 0.28) → menos overshooting por par
-        #   b) Push dividido por sqrt(count) → 16 vecinos no acumulan 16× fuerza
-        #   c) Cap final del push → imposible que la suma supere 1.2× base_speed
         push_x = push_y = 0.0
         if spatial_grid:
             neighbors = spatial_grid.get_nearby(ex, ey, radius=1)
@@ -302,20 +260,16 @@ class Enemy:
                     odist = math.sqrt(odist_sq)
                     inv_od = 1.0 / odist
                     overlap = sep_radius - odist
-                    # Coeficiente reducido: 0.18 en lugar de 0.28
                     ps = overlap * (overlap / sep_radius) * 0.18
                     push_x += odx * inv_od * ps
                     push_y += ody * inv_od * ps
                     count += 1
 
-            # b) Escalar por 1/√count: evita que muchos vecinos acumulen
-            #    fuerza explosiva — con 16 vecinos la fuerza se divide por 4
             if count > 1:
                 inv_sqrt = 1.0 / math.sqrt(count)
                 push_x *= inv_sqrt
                 push_y *= inv_sqrt
 
-            # c) Cap duro: el push nunca supera 1.2× la velocidad base
             push_sq = push_x * push_x + push_y * push_y
             max_push = self.base_speed * 1.2
             if push_sq > max_push * max_push:
@@ -323,23 +277,12 @@ class Enemy:
                 push_x *= inv_pm
                 push_y *= inv_pm
 
-        # --- 3. CARRIL DETERMINISTA ---
-        # Vector perpendicular a la dirección de movimiento
         perp_x = -dir_y
         perp_y = dir_x
-
-        # _lane ∈ [-1, 1]: offset lateral fijo, único por enemigo.
-        # Produce distribución en abanico: izquierda, centro, derecha.
-        # Escala con la velocidad para que el efecto sea proporcional.
         lateral_strength = 0.38 * current_move_speed
         lane_vx = perp_x * self._lane * lateral_strength
         lane_vy = perp_y * self._lane * lateral_strength
 
-        # --- ANTI-JITTER: lerp de velocidad ---
-        # En lugar de asignar vx/vy directamente (causa oscilación inmediata),
-        # interpolamos al 40% hacia el objetivo cada frame.
-        # Resultado: la velocidad no puede cambiar de dirección de un frame
-        # al siguiente → el temblor desaparece aunque haya muchos vecinos.
         target_vx = dir_x * current_move_speed + push_x + lane_vx
         target_vy = dir_y * current_move_speed + push_y + lane_vy
 
@@ -480,7 +423,6 @@ class Enemy:
         cx_s = sx + ht2
         cy_s = sy + ht2
 
-        # Glow del Exploder — usa caché
         cl = self.charge_level
         if self.special == 'explode' and cl > 0.05:
             gr = int(self.hitbox_total * 0.6 + cl * 20)
