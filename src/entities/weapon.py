@@ -1,19 +1,17 @@
 """
-Sistema de armas con soporte completo para multiplicadores del jugador:
-  - global_damage_mult      → afecta a TODAS las armas (incluyendo láser)
-  - global_cooldown_mult    → velocidad de disparo global
-  - projectile_speed_mult   → velocidad de proyectiles
-  - projectile_size_mult    → tamaño de hitbox de proyectiles
-  - extra_penetration       → penetración adicional
+Sistema de armas con soporte completo para multiplicadores del jugador.
 
-NUEVAS ARMAS:
-  - SniperWeapon: Rifle de Caza — máxima penetración (8 base), daño masivo (110),
-    disparo lento (100 frames). Proyectil fucsia ultrarrápido (38px/frame).
+NUEVAS ARMAS (Vampire Survivors style):
+  - NovaWeapon:      Explosión de 8 proyectiles en todas direcciones (auto-disparo).
+                     Perforan infinitamente → ideal contra hordas de +1000 enemigos.
+  - OrbitalWeapon:   3 orbes girando alrededor del jugador. Daño por contacto +
+                     retroceso fuerte. Sin pool de proyectiles — siempre activo.
+  - BoomerangWeapon: Proyectil que perfora infinitamente, vira al llegar a X distancia
+                     y regresa. Daña a los mismos enemigos en ambas pasadas.
 
-MEJORAS v2:
-  - SniperWeapon.render(): Mira infrarroja (laser sight rojo) siempre visible
-    cuando el Francotirador es el arma activa. Dibuja una línea delgada roja
-    con glow exterior sin crear Surfaces por frame (draw.line directo).
+BASE:
+  - Weapon.auto_shoot(dt): Override en armas de disparo pasivo. LevelManager
+    lo llama cada frame para que las armas auto-activas gestionen su propio timing.
 """
 import math, random, pygame, os
 from utils.paths import resource_path
@@ -75,18 +73,20 @@ class Weapon:
         if camera and self.shake_amount > 0:
             camera.add_shake(self.shake_amount)
 
-    def _apply_player_proj_mods(self, projectile):
-        """
-        Aplica los modificadores del jugador al proyectil recién creado.
-        projectile_size_mult afecta SOLO el tamaño VISUAL (self.size).
-        La hitbox no cambia para evitar colisiones fantasma a distancia.
-        """
+    def _apply_player_proj_mods(self, projectile, base_size=6):
         size_mult = getattr(self.owner, 'projectile_size_mult', 1.0)
-        if size_mult != 1.0:
-            projectile.size = max(3, int(projectile.size * size_mult))
+        projectile.size = max(3, int(base_size * size_mult))
 
     def activate(self, camera=None):
         return False
+
+    def auto_shoot(self, dt=1.0):
+        """
+        Override en armas de auto-disparo (Nova, Orbital, etc.).
+        LevelManager._update_weapons() lo llama cada frame.
+        No hace nada por defecto.
+        """
+        pass
 
 class PistolWeapon(Weapon):
     def __init__(self, owner):
@@ -116,7 +116,7 @@ class PistolWeapon(Weapon):
             image_type='circle'
         )
         p.color = (0, 255, 255)
-        self._apply_player_proj_mods(p)
+        self._apply_player_proj_mods(p, base_size=5)
 
         self.current_spread = min(self.current_spread + 0.05, 0.15)
         return True
@@ -155,7 +155,7 @@ class ShotgunWeapon(Weapon):
                 image_type='square'
             )
             p.color = (255, random.randint(100, 150), 0)
-            self._apply_player_proj_mods(p)
+            self._apply_player_proj_mods(p, base_size=4)
 
         return True
 
@@ -184,7 +184,6 @@ class LaserWeapon(Weapon):
         return None
 
     def get_damage_per_second(self):
-        """Daño por segundo del láser incluyendo global_damage_mult del jugador"""
         damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
         return self.damage * damage_mult * 6
 
@@ -236,34 +235,13 @@ class AssaultRifleWeapon(Weapon):
             image_type='square'
         )
         p.color = (255, 230, 100)
-        self._apply_player_proj_mods(p)
+        self._apply_player_proj_mods(p, base_size=5)
 
         self.current_spread = min(self.current_spread + 0.04, self.max_spread)
         return True
 
 
 class SniperWeapon(Weapon):
-    """
-    Rifle de Caza — el arma de mayor penetración del juego.
-
-    Estadísticas base:
-      · Daño:        110 (x global_damage_mult)
-      · Penetración: 8 base + extra_penetration del jugador
-      · Cooldown:    100 frames (~1.67s a 60fps)
-      · Velocidad:   38 px/frame — el proyectil más rápido
-      · Dispersión:  0.0 — disparo perfectamente preciso
-
-    COLISIÓN SWEPT:
-      La velocidad alta (38+ px/frame con mejoras) provocaba que las balas
-      "se saltasen" enemigos entre frames. Ahora Projectile almacena prev_x/y
-      y check_collision_grid usa clipline() para detectar cualquier enemigo
-      en la trayectoria completa del frame.
-
-    MIRA INFRARROJA:
-      Cuando es el arma activa, se dibuja una línea láser roja delgada
-      mostrando la trayectoria exacta del próximo disparo. Sin allocations
-      por frame (pygame.draw.line directo sobre screen).
-    """
     def __init__(self, owner):
         super().__init__(owner, cooldown=100, damage=110, kickback=14.0, shake=9.0, spread=0.0)
         self.shoot_sound = load_sound("pistol_fire.wav")
@@ -298,18 +276,12 @@ class SniperWeapon(Weapon):
         )
         p.color   = (255, 30, 180)
         p.size    = 5
-        self._apply_player_proj_mods(p)
+        self._apply_player_proj_mods(p, base_size=5)
         self._muzzle_flash = 8
         return True
 
     def render(self, screen, camera):
-        """
-        Mira infrarroja (siempre visible cuando es arma activa)
-        + Destello de cañón y línea de trayectoria al disparar.
-        """
         owner = self.owner
-
-        # ── Detectar si es el arma activa ────────────────────────────
         try:
             is_active = owner.weapons[owner.current_weapon_index] is self
         except (IndexError, AttributeError):
@@ -319,38 +291,25 @@ class SniperWeapon(Weapon):
         sp     = camera.apply_coords(owner.x, owner.y)
         sx, sy = int(sp[0]), int(sp[1])
 
-        # ── MIRA INFRARROJA ──────────────────────────────────────────
-        # Dibuja un rayo láser rojo que muestra la trayectoria exacta.
-        # Usa pygame.draw.line directo (sin Surface temporal = sin overhead).
         if is_active:
             scope_len = 950
             ex = int(sx + math.cos(angle) * scope_len)
             ey = int(sy + math.sin(angle) * scope_len)
-
-            # Capa exterior: glow ancho y oscuro (crea sensación de profundidad)
             pygame.draw.line(screen, (100, 0, 0),   (sx, sy), (ex, ey), 3)
-            # Capa media
             pygame.draw.line(screen, (200, 15, 15), (sx, sy), (ex, ey), 2)
-            # Rayo central brillante
             pygame.draw.line(screen, (255, 40, 40), (sx, sy), (ex, ey), 1)
-
-            # Punto de impacto: anillo exterior + núcleo
             pygame.draw.circle(screen, (180, 0, 0),   (ex, ey), 6, 1)
             pygame.draw.circle(screen, (255, 80, 80), (ex, ey), 3)
             pygame.draw.circle(screen, (255, 200, 200), (ex, ey), 1)
 
-        # ── DESTELLO DE CAÑÓN (solo al disparar) ─────────────────────
         if self._muzzle_flash <= 0:
             return
 
         prog = self._muzzle_flash / 8.0
-
-        # Línea de trayectoria (trazo fucsia fantasma, se desvanece)
         end_x = int(sx + math.cos(angle) * 500 * prog)
         end_y = int(sy + math.sin(angle) * 500 * prog)
         pygame.draw.line(screen, (255, 30, 180), (sx, sy), (end_x, end_y), 2)
 
-        # Flash blanco en boca de cañón
         flash_r = int(14 * prog)
         if flash_r > 1:
             muz_x = int(sx + math.cos(angle) * 28)
@@ -359,3 +318,244 @@ class SniperWeapon(Weapon):
             pygame.draw.circle(fs, (255, 220, 255, int(prog * 220)),
                                (flash_r, flash_r), flash_r)
             screen.blit(fs, (muz_x - flash_r, muz_y - flash_r))
+
+class NovaWeapon(Weapon):
+    """
+    Nova de Espinas — Auto-disparo circular cada ~3 segundos.
+
+    Lanza 8 proyectiles simultáneos en todas las direcciones con
+    penetración infinita. Ideal para limpiar la pantalla cuando estás rodeado.
+
+    · No requiere apuntar — se activa solo.
+    · Se beneficia de global_damage_mult, extra_penetration y projectile_speed_mult.
+    · El cooldown se reduce con global_cooldown_mult igual que las demás armas.
+    """
+    def __init__(self, owner):
+        super().__init__(owner, cooldown=180, damage=30, kickback=0, shake=5.0, spread=0)
+        self.num_projectiles = 8
+
+    def auto_shoot(self, dt=1.0):
+        """LevelManager llama esto cada frame — dispara cuando el cooldown llega a 0."""
+        if self.current_cooldown <= 0 and self.projectile_pool:
+            if self.activate():
+                self.current_cooldown = self.cooldown
+                # Shake de cámara al explotar
+                if hasattr(self.owner, 'weapons'):
+                    pass  # shake se aplica dentro de activate via _apply_physics si queremos
+
+    def activate(self, camera=None):
+        if not self.projectile_pool:
+            return False
+
+        owner       = self.owner
+        speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
+        extra_pen   = getattr(owner, 'extra_penetration', 0)
+        damage_mult = getattr(owner, 'global_damage_mult', 1.0)
+        final_dmg   = int(self.damage * damage_mult)
+        num         = self.num_projectiles
+
+        for i in range(num):
+            angle = (math.pi * 2 / num) * i
+            px = owner.x + math.cos(angle) * 18
+            py = owner.y + math.sin(angle) * 18
+            p = self.projectile_pool.get(
+                px, py, angle,
+                speed=9 * speed_mult,
+                damage=final_dmg,
+                penetration=9999 + extra_pen,   # perfora infinitamente
+                lifetime=100,
+                image_type='circle'
+            )
+            p.color = (220, 80, 255)
+            p.size  = 9
+            self._apply_player_proj_mods(p, base_size=9)
+
+        # Sacudida de cámara
+        if camera:
+            camera.add_shake(5.0)
+        return True
+
+
+class OrbitalWeapon(Weapon):
+    """
+    Orbes Orbitales — N orbes girando alrededor del jugador continuamente.
+
+    · No usa la projectile_pool — los orbes son entidades lógicas propias.
+    · Al tocar a un enemigo: daño + fuerte retroceso (empuja a la multitud).
+    · Cooldown de 0.5 s por enemigo para no spamear daño.
+    · Se beneficia de global_damage_mult y knockback_mult.
+    · LevelManager._update_weapons() llama check_hits() para resolver colisiones.
+    """
+
+    ORB_RADIUS   = 15       # radio visual y de colisión del orbe
+    ORBIT_SPEED  = 0.05     # rad/frame
+    HIT_COOLDOWN = 35       # frames entre golpes al mismo enemigo
+
+    def __init__(self, owner):
+        super().__init__(owner, cooldown=0, damage=45, kickback=0, shake=0, spread=0)
+        self.num_orbs     = 3
+        self.orbit_radius = 95
+        self._angle       = 0.0
+        self._hit_cd: dict[int, float] = {}   # id(enemy) → frames restantes
+
+    def update(self, dt=1.0):
+        super().update(dt)
+        self._angle += self.ORBIT_SPEED * dt
+        # Decrementar cooldowns de golpe
+        to_del = [k for k, v in self._hit_cd.items() if v <= dt]
+        for k in to_del:
+            del self._hit_cd[k]
+        for k in list(self._hit_cd):
+            if k in self._hit_cd:
+                self._hit_cd[k] -= dt
+
+    def get_orb_positions(self):
+        owner = self.owner
+        n     = self.num_orbs
+        return [
+            (
+                owner.x + math.cos(self._angle + (math.pi * 2 / n) * i) * self.orbit_radius,
+                owner.y + math.sin(self._angle + (math.pi * 2 / n) * i) * self.orbit_radius,
+            )
+            for i in range(n)
+        ]
+
+    def check_hits(self, enemies, knockback_mult=1.0):
+        """
+        Detecta colisiones orbe-enemigo y devuelve lista de (enemy, damage).
+        Llamar desde LevelManager._update_weapons() cada frame.
+        """
+        positions   = self.get_orb_positions()
+        damage_mult = getattr(self.owner, 'global_damage_mult', 1.0)
+        final_dmg   = self.damage * damage_mult
+        hit_r_sq    = (self.ORB_RADIUS + 14) ** 2   # margen para hitbox generosa
+
+        hits = []
+        for ox, oy in positions:
+            for enemy in enemies:
+                if not enemy.is_alive:
+                    continue
+                eid = id(enemy)
+                if eid in self._hit_cd:
+                    continue
+                dx = enemy.x - ox
+                dy = enemy.y - oy
+                if dx * dx + dy * dy <= hit_r_sq:
+                    self._hit_cd[eid] = self.HIT_COOLDOWN
+                    # Knockback hacia afuera desde el orbe
+                    enemy.apply_knockback(ox, oy, force=9 * knockback_mult)
+                    hits.append((enemy, final_dmg))
+        return hits
+
+    def activate(self, camera=None):
+        return True   # siempre activo
+
+    def render(self, screen, camera):
+        for ox, oy in self.get_orb_positions():
+            sp = camera.apply_coords(ox, oy)
+            cx, cy = int(sp[0]), int(sp[1])
+            r  = self.ORB_RADIUS
+
+            # Glow exterior suave
+            gs = r * 3
+            glow = pygame.Surface((gs * 2, gs * 2), pygame.SRCALPHA)
+            pygame.draw.circle(glow, (50, 180, 255, 55), (gs, gs), gs)
+            screen.blit(glow, (cx - gs, cy - gs))
+
+            # Cuerpo del orbe
+            pygame.draw.circle(screen, (100, 210, 255), (cx, cy), r)
+            pygame.draw.circle(screen, (220, 245, 255), (cx, cy), r // 2)
+            pygame.draw.circle(screen, (180, 230, 255), (cx, cy), r, 2)
+
+
+class BoomerangWeapon(Weapon):
+    """
+    Boomerang Arcano — un único proyectil de ida y vuelta.
+
+    · Va hacia el cursor perforando infinitamente hasta MAX_DIST px.
+    · Al llegar a la distancia máxima invierte la dirección (regresa).
+    · En el regreso puede volver a dañar a los mismos enemigos.
+    · Si se activa mientras el boomerang vuela, el disparo se ignora
+      hasta que el proyectil regrese al jugador.
+    """
+    MAX_DIST = 330  # px antes de invertir dirección
+
+    def __init__(self, owner):
+        super().__init__(owner, cooldown=80, damage=60, kickback=0, shake=3.0, spread=0)
+        self._proj      = None
+        self._start_x   = 0.0
+        self._start_y   = 0.0
+        self._returning = False
+
+    def update(self, dt=1.0):
+        super().update(dt)
+        p = self._proj
+        if p and p.is_alive:
+            if not self._returning:
+                dx = p.x - self._start_x
+                dy = p.y - self._start_y
+                if dx * dx + dy * dy >= self.MAX_DIST ** 2:
+                    # Invertir dirección y cambiar color para indicar el regreso
+                    p.vel_x  = -p.vel_x
+                    p.vel_y  = -p.vel_y
+                    p.hit_enemies.clear()   # puede volver a dañar en el regreso
+                    p.color  = (255, 140, 30)
+                    self._returning = True
+            else:
+                # Cerca del jugador → el boomerang es recogido
+                owner = self.owner
+                dx = p.x - owner.x
+                dy = p.y - owner.y
+                if dx * dx + dy * dy < 38 ** 2:
+                    p.is_alive = False
+                    self._proj      = None
+                    self._returning = False
+        else:
+            self._proj      = None
+            self._returning = False
+
+    def auto_shoot(self, dt=1.0):
+        # El LevelManager llama esto en cada frame. Dispara cuando el cooldown llegue a 0.
+        if self.current_cooldown <= 0 and self.projectile_pool:
+            if self._fire_boomerang():
+                self.current_cooldown = self.cooldown
+
+    def activate(self, camera=None):
+        # Retorna False para bloquear el disparo manual; así no funciona con el click
+        return False
+
+    def _fire_boomerang(self):
+        # Lógica original de disparo que antes estaba en activate()
+        if self._proj and self._proj.is_alive:
+            return False
+        if not self.projectile_pool:
+            return False
+
+        owner       = self.owner
+        speed_mult  = getattr(owner, 'projectile_speed_mult', 1.0)
+        extra_pen   = getattr(owner, 'extra_penetration', 0)
+        damage_mult = getattr(owner, 'global_damage_mult', 1.0)
+        final_dmg   = int(self.damage * damage_mult)
+
+        angle = owner.angle
+        px = owner.x + math.cos(angle) * 24
+        py = owner.y + math.sin(angle) * 24
+
+        p = self.projectile_pool.get(
+            px, py, angle,
+            speed=15 * speed_mult,
+            damage=final_dmg,
+            penetration=9999 + extra_pen,   # perfora todo
+            lifetime=500,
+            image_type='square'
+        )
+        p.color         = (255, 220, 60)
+        
+        # Aplicamos el fix del tamaño para este proyectil en particular
+        self._apply_player_proj_mods(p, base_size=11)
+
+        self._proj      = p
+        self._start_x   = owner.x
+        self._start_y   = owner.y
+        self._returning = False
+        return True

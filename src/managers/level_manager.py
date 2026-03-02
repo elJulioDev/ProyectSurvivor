@@ -2,17 +2,11 @@
 LevelManager con sistema de partículas GORE optimizado + ChunkManager.
 
 CAMBIOS vs versión anterior:
-  - ELIMINADO: self.blood_surface (superficie única del tamaño de la ventana).
-    Era costosa en Android (scroll frame a frame, RAM aunque pequeña).
-  - AÑADIDO: self.chunk_manager (ChunkManager).
-    Las manchas de sangre se hornean en chunks de 1000×1000 px del mundo.
-    Solo los chunks cercanos al jugador existen en memoria → GC automático.
-  - ELIMINADO: scroll de blood_surface (_blood_cam_x/y + blit+copy cada frame).
-  - AJUSTADO: particle_pool.update_and_bake() ya no recibe blood_surface;
-    en su lugar recibe chunk_manager.
-
-PARCHE DE RENDIMIENTO ANDROID conservado:
-  - PROBLEMA 3: Límites de enemigos y partículas adaptados a móvil.
+  - _update_weapons(): llama weapon.auto_shoot(dt) en todas las armas
+    → NovaWeapon dispara solo, OrbitalWeapon detecta colisiones sin pool.
+  - _update_aura(): añadido knockback continuo si player.aura_knockback > 0
+    → empuja a los enemigos hacia afuera del radio del aura.
+  - Importa OrbitalWeapon para isinstance() check en _update_weapons().
 """
 import pygame
 import math
@@ -20,12 +14,12 @@ import random
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 from entities.player     import Player
 from entities.particle   import ParticleSystem
-from entities.weapon     import LaserWeapon
+from entities.weapon     import LaserWeapon, OrbitalWeapon
 from entities.projectile import EnemyProjectile
 from utils.camera        import Camera
 from utils.object_pool   import ProjectilePool, ParticlePool
 from utils.spatial_grid  import SpatialGrid
-from utils.chunk_manager import ChunkManager          # ← NUEVO
+from utils.chunk_manager import ChunkManager
 from managers.spawn_manager  import SpawnManager
 from entities.experience_gem import ExperienceGem
 from utils.platform_detect import is_mobile
@@ -40,24 +34,20 @@ MAX_ENEMY_PROJECTILES   = 35
 
 GEM_UPDATE_RADIUS_SQ = 2000 ** 2
 
-# Throttle de partículas por frame: tras N kills, degrada el efecto
-_PARTICLE_FULL_KILLS  = 6    # kills 1..6   → viscera completa
-_PARTICLE_POOL_KILLS  = 16   # kills 7..16  → solo charco
-# > 16 kills/frame → sin partículas (solo score + gemas)
+_PARTICLE_FULL_KILLS  = 6
+_PARTICLE_POOL_KILLS  = 16
 
 
 class LevelManager:
     def __init__(self):
         self.projectile_pool  = ProjectilePool(initial_size=500)
 
-        # PARCHE 3b: capacidad reducida en móvil (600 vs 1500)
         _particle_cap = 600 if is_mobile() else 1500
         self.particle_pool    = ParticlePool(capacity=_particle_cap)
 
         self.spatial_grid     = SpatialGrid(WORLD_WIDTH, WORLD_HEIGHT, cell_size=100)
         self.particle_system  = ParticleSystem()
 
-        # PARCHE 3: detectar móvil y pasarlo al SpawnManager
         self._is_mobile = is_mobile()
         self.spawn_manager    = SpawnManager(mobile=self._is_mobile)
 
@@ -69,9 +59,6 @@ class LevelManager:
         self.score            = 0
         self.game_over        = False
 
-        # ── ChunkManager: reemplaza blood_surface ─────────────────────
-        # La capa de sangre ahora se divide en chunks de 1000×1000 px.
-        # Solo existen en RAM los chunks cercanos al jugador.
         self.chunk_manager = ChunkManager(WORLD_WIDTH, WORLD_HEIGHT, chunk_size=1000)
 
         self._ai_base_interval = 4
@@ -88,10 +75,7 @@ class LevelManager:
 
         self._active_enemies_buf: list = []
 
-        # Ninja dash: set de enemigos ya golpeados en el dash actual
         self._ninja_dash_hit_set: set = set()
-
-        # Throttle de partículas: contador de kills este frame
         self._kills_this_frame: int = 0
 
     def initialize(self):
@@ -104,14 +88,12 @@ class LevelManager:
         self.projectile_pool.clear()
         self.particle_pool.clear()
 
-        # Limpiar todos los chunks (nueva partida = mundo limpio)
         self.chunk_manager.clear()
 
         self.score    = 0
         self.game_over = False
         self.gems.clear()
 
-        # PARCHE 3: pasar flag móvil al SpawnManager al reiniciar
         self.spawn_manager        = SpawnManager(mobile=self._is_mobile)
 
         self.hit_particle_cooldown = 0
@@ -123,11 +105,9 @@ class LevelManager:
         self._kills_this_frame    = 0
         self.camera.snap_to(self.player)
 
-        # Primera actualización de chunks activos tras posicionar la cámara
         self.chunk_manager.update_active_chunks(self.camera)
 
     def set_target_fps(self, fps: int):
-        """Escalar intervalos internos al FPS objetivo."""
         scale = max(1.0, fps / 60.0)
         self._ai_base_interval = max(1, int(4 * scale))
         self.particle_pool._bake_interval = 1
@@ -148,10 +128,7 @@ class LevelManager:
             self.game_over = True
             return
 
-        # ── LOD basado en frame anterior ─────────────────────────────
         self._update_lod()
-
-        # ── Resetear throttle de partículas para este frame ──────────
         self._kills_this_frame = 0
 
         use_mobile = mobile is not None and mobile.enabled
@@ -190,7 +167,6 @@ class LevelManager:
         self._update_projectiles(dt)
         self._update_enemy_projectiles(dt)
 
-        # Mecánicas especiales
         self._update_aura(dt)
         self._check_ninja_dash()
 
@@ -210,12 +186,7 @@ class LevelManager:
 
         self._update_gems(dt)
 
-        # ── ChunkManager: actualiza qué chunks están activos ─────────
-        # Internamente lo hace cada CHUNK_UPDATE_INTERVAL frames.
         self.chunk_manager.tick(self.camera)
-
-        # ── Hornear partículas estáticas en los chunks ───────────────
-        # Se pasa chunk_manager en lugar de blood_surface → sin scroll.
         self.particle_pool.update_and_bake(
             dt,
             chunk_manager=self.chunk_manager
@@ -236,6 +207,7 @@ class LevelManager:
             return
 
         aura_radius    = getattr(player, 'aura_radius', 80.0)
+        aura_knockback = getattr(player, 'aura_knockback', 0.0)
         radius_sq      = aura_radius * aura_radius
         px, py         = player.x, player.y
         dmg_per_frame  = aura_dmg * dt / 60.0
@@ -245,13 +217,22 @@ class LevelManager:
                 continue
             dx = enemy.x - px
             dy = enemy.y - py
-            if dx * dx + dy * dy <= radius_sq:
+            dist_sq = dx * dx + dy * dy
+            if dist_sq <= radius_sq:
+                # Partículas
                 if self.frame_counter % 8 == 0 and self.particle_system.quality > 0:
                     self.particle_system.create_blood_splatter(
                         enemy.x, enemy.y, force=0.4, count=1
                     )
+                # Daño
                 if enemy.take_damage(dmg_per_frame):
                     self._on_enemy_killed(enemy)
+                # Knockback radial continuo (si upgrade activo)
+                elif aura_knockback > 0 and dist_sq > 1:
+                    dist = math.sqrt(dist_sq)
+                    push = aura_knockback * dt * 0.6
+                    enemy.knockback_x += (dx / dist) * push
+                    enemy.knockback_y += (dy / dist) * push
 
     def _check_ninja_dash(self):
         player = self.player
@@ -392,9 +373,21 @@ class LevelManager:
         if self.hit_particle_cooldown > 0:
             self.hit_particle_cooldown -= dt
 
+        kb_mult = getattr(self.player, 'knockback_mult', 1.0)
+
         for weapon in self.player.weapons:
             weapon.update(dt=dt)
 
+            # Auto-disparo (Nova, etc.)
+            weapon.auto_shoot(dt)
+
+            # Orbes Orbitales: detección de impacto pasiva
+            if isinstance(weapon, OrbitalWeapon):
+                for enemy, dmg in weapon.check_hits(self.enemies, kb_mult):
+                    if enemy.take_damage(dmg):
+                        self._on_enemy_killed(enemy)
+
+            # Láser continuo
             if isinstance(weapon, LaserWeapon) and weapon.draw_timer > 0:
                 beam = weapon.get_beam_info()
                 if beam:
@@ -523,8 +516,6 @@ class LevelManager:
     def render_world(self, screen):
         self._render_grid(screen)
 
-        # ── Chunks de sangre (reemplaza el blit del blood_surface) ───
-        # Solo se renderizan los chunks cercanos (4-9 típicamente).
         self.chunk_manager.render(screen, self.camera)
 
         self.particle_pool.render_all(screen, self.camera, layer='floor')
@@ -653,7 +644,6 @@ class LevelManager:
             'gems_count':         len(self.gems),
             'particle_quality':   self.particle_system.quality,
             'kills_this_frame':   self._kills_this_frame,
-            # Nuevos — chunks
             'chunks_active':      cm_info['chunks_active'],
             'chunks_total':       cm_info['chunks_total'],
         }

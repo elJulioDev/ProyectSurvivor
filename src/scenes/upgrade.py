@@ -133,7 +133,7 @@ class UpgradeScene(Scene):
 
         for key, upg in UPGRADES.items():
             req = upg.get('requires')
-            # ── Nuevo sistema de requisitos unificado ──────────────────
+            # ── Nuevo sistema de requisitos unificado
             if not _check_requires(req, player):
                 continue
 
@@ -257,11 +257,9 @@ class UpgradeScene(Scene):
             elif sname == 'dash_duration':
                 player.dash_duration = int(player.dash_duration * val)
 
-            # ── NUEVOS STATS ──────────────────────────────────────────
             elif sname == 'ninja_dash':
-                # val es True (bool) — activa el modo ninja
                 player.ninja_dash = True
-                print("🥷 Artes Oscuras desbloqueado — el Dash mata instantáneamente.")
+                print("🥷 Artes Oscuras desbloqueado — el Dash mata instantaneamente.")
 
             elif sname == 'aura_damage':
                 player.aura_damage += val
@@ -274,6 +272,10 @@ class UpgradeScene(Scene):
             elif sname == 'aura_damage_mult':
                 player.aura_damage *= val
                 print(f"🌀 Aura Sobrecargada: {player.aura_damage:.1f} DPS")
+
+            elif sname == 'aura_knockback':
+                player.aura_knockback = val
+                print(f"🌀 Aura Repulsora activada — fuerza de empuje: {val}")
 
         elif utype == 'weapon':
             sname = upg['stat_name']

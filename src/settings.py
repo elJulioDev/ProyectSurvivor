@@ -1,5 +1,11 @@
 """
 Configuraciones globales del juego.
+
+NUEVAS MEJORAS AÑADIDAS:
+  · unlock_nova       → Nova de Espinas (auto-disparo, 8 direcciones, pierce infinito)
+  · unlock_orbital    → Orbes Orbitales (3 orbes girando, knockback pasivo)
+  · unlock_boomerang  → Boomerang Arcano (ida y vuelta, pierce infinito)
+  · aura_knockback    → El Aura empuja activamente a los enemigos hacia afuera
 """
 
 # CONFIGURACIÓN DE PANTALLA
@@ -8,9 +14,6 @@ BASE_HEIGHT = 720
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
-# Mundo: reducido de 12000×9000 a 6000×4500
-# (los enemigos spawnean circulares alrededor del jugador, así que
-#  el tamaño del mundo solo afecta a los bordes y a la SpatialGrid)
 WORLD_WIDTH  = 12000   # 2400 * 5
 WORLD_HEIGHT = 9000    # 1800 * 5
 
@@ -50,17 +53,6 @@ CROSSHAIR_THICKNESS = 2
 CROSSHAIR_DOT_SIZE = 2
 
 MOBILE_CAMERA_ZOOM = 1.6
-
-# SISTEMA DE MEJORAS — Categorías, Rarezas y Stats expandidos
-# type:        'stat' | 'weapon' | 'xp' | 'unlock' | 'unlock_weapon'
-# rarity:      'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
-# category:    'movement' | 'survival' | 'weapons' | 'xp'
-# stackable:   Si puede elegirse más de una vez
-# max_stacks:  Límite de veces que puede acumularse (None = sin límite)
-# requires:    Condición para que aparezca:
-#                'dash_unlocked'   → player.dash_unlocked == True
-#                'aura_unlocked'   → player.aura_damage > 0
-#                'ninja_dash_ready'→ dash desbloqueado + dash_cooldown al máximo (3 stacks)
 
 UPGRADES = {
 
@@ -244,6 +236,22 @@ UPGRADES = {
         'category': 'survival',
     },
 
+    # NUEVA: Knockback del Aura
+    'aura_knockback': {
+        'name': 'Aura Repulsora',
+        'desc': (
+            'El Aura de Espinas empuja ACTIVAMENTE a los enemigos hacia afuera. '
+            'Crea espacio vital en hordas de +1000. Requiere Aura activa.'
+        ),
+        'type': 'stat',
+        'stat_name': 'aura_knockback',
+        'value': 1.8,
+        'stackable': False,
+        'requires': 'aura_unlocked',
+        'rarity': 'uncommon',
+        'category': 'survival',
+    },
+
     # ARMAS — GLOBALES
     'weapon_damage': {
         'name': 'Potencia de Fuego',
@@ -332,7 +340,7 @@ UPGRADES = {
         'category': 'weapons',
     },
 
-    # ARMAS — DESBLOQUEOS
+    # ARMAS — DESBLOQUEOS ORIGINALES
     'unlock_shotgun': {
         'name': 'Escopeta',
         'desc': 'Desbloquea la escopeta (Tecla 2). 8 perdigones, devastadora a corto rango.',
@@ -367,6 +375,43 @@ UPGRADES = {
         'type': 'unlock_weapon',
         'weapon_class': 'SniperWeapon',
         'rarity': 'epic',
+        'category': 'weapons',
+    },
+
+    # ARMAS — NUEVOS DESBLOQUEOS (anti-horda)
+    'unlock_nova': {
+        'name': 'Nova de Espinas',
+        'desc': (
+            'Auto-disparo cada 3s: 8 proyectiles en TODAS las direcciones con '
+            'penetracion infinita. Limpia la pantalla entera sin apuntar.'
+        ),
+        'type': 'unlock_weapon',
+        'weapon_class': 'NovaWeapon',
+        'rarity': 'rare',
+        'category': 'weapons',
+    },
+    'unlock_orbital': {
+        'name': 'Orbes Orbitales',
+        'desc': (
+            '3 orbes girando a tu alrededor constantemente. '
+            'Daño por contacto + fuerte retroceso. '
+            'Crea un muro fisico contra las hordas mas densas.'
+        ),
+        'type': 'unlock_weapon',
+        'weapon_class': 'OrbitalWeapon',
+        'rarity': 'epic',
+        'category': 'weapons',
+    },
+    'unlock_boomerang': {
+        'name': 'Boomerang Arcano',
+        'desc': (
+            'Lanza un proyectil que perfora infinitamente, '
+            'da la vuelta al llegar a 330px y regresa danando de nuevo. '
+            'Devastador contra filas densas de enemigos.'
+        ),
+        'type': 'unlock_weapon',
+        'weapon_class': 'BoomerangWeapon',
+        'rarity': 'rare',
         'category': 'weapons',
     },
 

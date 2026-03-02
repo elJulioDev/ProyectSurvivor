@@ -3,9 +3,10 @@ Jugador optimizado con DeltaTime + Sistema de Dash Profesional
 Stats expandidos para el nuevo sistema de mejoras.
 
 NUEVOS STATS:
-  aura_damage     → DPS del Aura de Espinas (0 = inactiva)
-  aura_radius     → Radio del aura en píxeles (base 80)
-  ninja_dash      → Si True, el dash mata enemigos al atravesarlos
+  aura_damage      → DPS del Aura de Espinas (0 = inactiva)
+  aura_radius      → Radio del aura en píxeles (base 80)
+  aura_knockback   → Fuerza de retroceso continuo del Aura (0 = sin empuje)
+  ninja_dash       → Si True, el dash mata enemigos al atravesarlos
 """
 
 import pygame, math
@@ -81,12 +82,13 @@ class Player:
         self.emergency_regen   = 0.0
         self.invulnerable_mult = 1.0
 
-        # STATS DE MEJORAS — Aura de daño (nueva)
-        self.aura_damage = 0.0       # DPS que inflige a enemigos cercanos
-        self.aura_radius = 80.0      # Radio del aura en píxeles
+        # STATS DE MEJORAS — Aura de daño
+        self.aura_damage    = 0.0       # DPS que inflige a enemigos cercanos
+        self.aura_radius    = 80.0      # Radio del aura en píxeles
+        self.aura_knockback = 0.0       # Fuerza de empuje continuo del Aura (0 = off)
 
-        # STATS DE MEJORAS — Dash Ninja (nueva)
-        self.ninja_dash = False      # Si True, el dash mata enemigos al contacto
+        # STATS DE MEJORAS — Dash Ninja
+        self.ninja_dash = False
 
         # STATS DE MEJORAS — XP / Gemas
         self.xp_mult           = 1.0
@@ -128,6 +130,10 @@ class Player:
                 self.current_weapon_index = 3
             elif event.key == pygame.K_5 and len(self.weapons) > 4:
                 self.current_weapon_index = 4
+            elif event.key == pygame.K_6 and len(self.weapons) > 5:
+                self.current_weapon_index = 5
+            elif event.key == pygame.K_7 and len(self.weapons) > 6:
+                self.current_weapon_index = 6
             elif event.key == pygame.K_h:
                 self.heal(10)
                 self.damage_flash = 5
@@ -258,12 +264,17 @@ class Player:
         self.angle = math.atan2(dy, dx)
 
     def add_weapon(self, weapon_class, projectile_pool):
-        from entities.weapon import ShotgunWeapon, LaserWeapon, AssaultRifleWeapon, SniperWeapon
+        from entities.weapon import (ShotgunWeapon, LaserWeapon, AssaultRifleWeapon,
+                                     SniperWeapon, NovaWeapon, OrbitalWeapon,
+                                     BoomerangWeapon)
         weapon_map = {
             'ShotgunWeapon':       ShotgunWeapon,
             'AssaultRifleWeapon':  AssaultRifleWeapon,
             'LaserWeapon':         LaserWeapon,
             'SniperWeapon':        SniperWeapon,
+            'NovaWeapon':          NovaWeapon,
+            'OrbitalWeapon':       OrbitalWeapon,
+            'BoomerangWeapon':     BoomerangWeapon,
         }
         if weapon_class in weapon_map and weapon_class not in self.unlocked_weapons:
             new_weapon = weapon_map[weapon_class](self)
@@ -364,7 +375,6 @@ class Player:
         if self.invulnerable_frames > 0 and int(self.invulnerable_frames) % 6 < 3:
             return
 
-        # Ghost trail del dash — color especial si ninja_dash activo
         if self.dash_active and len(self.ghost_positions) > 0:
             for i, (gx, gy, gangle) in enumerate(self.ghost_positions):
                 alpha = int(180 * (i / max(1, len(self.ghost_positions))))
@@ -372,7 +382,6 @@ class Player:
                 gsx, gsy = int(ghost_screen[0]), int(ghost_screen[1])
 
                 if self.ninja_dash:
-                    # Trail oscuro-violeta para indicar el modo ninja
                     ghost_color = (100, 0, 180, alpha)
                 else:
                     ghost_color = (255, 255, 255, alpha)
@@ -392,7 +401,6 @@ class Player:
             flash = int(255 * (self.damage_flash / 15))
             render_color = (255, max(0, 255 - flash), max(0, 255 - flash))
 
-        # Contorno violeta si ninja_dash activo (indicador visual de estado)
         if self.ninja_dash and self.dash_unlocked:
             pygame.draw.rect(screen, (160, 0, 255),
                              (screen_x - self.size//2 - 2, screen_y - self.size//2 - 2,
