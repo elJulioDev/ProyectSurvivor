@@ -1,15 +1,5 @@
 """
 Configuraciones globales del juego.
-
-CAMBIO DE RENDIMIENTO:
-  WORLD_WIDTH / WORLD_HEIGHT reducidos de 12000×9000 a 6000×4500.
-
-  ¿Por qué?
-  · Los enemigos siempre spawnean en un radio de 650-1100 px alrededor
-    del jugador → el jugador nunca necesita recorrer el mundo completo.
-  · La SpatialGrid mejora: de ~10 800 celdas a ~2 700 celdas (×4 más rápida).
-  · El cálculo de teleport de enemigos (TELEPORT_DISTANCE) sigue funcionando.
-  · Con ChunkManager, la capa de sangre ya no depende del tamaño del mundo.
 """
 
 # CONFIGURACIÓN DE PANTALLA
@@ -21,8 +11,8 @@ WINDOW_HEIGHT = 720
 # Mundo: reducido de 12000×9000 a 6000×4500
 # (los enemigos spawnean circulares alrededor del jugador, así que
 #  el tamaño del mundo solo afecta a los bordes y a la SpatialGrid)
-WORLD_WIDTH  = 6000   # era: 2400 * 5 = 12 000
-WORLD_HEIGHT = 4500   # era: 1800 * 5 =  9 000
+WORLD_WIDTH  = 12000   # 2400 * 5
+WORLD_HEIGHT = 9000    # 1800 * 5
 
 FPS = 60
 TITLE = "ProyectSurvivor"
