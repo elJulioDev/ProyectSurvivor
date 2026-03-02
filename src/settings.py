@@ -1,5 +1,15 @@
 """
-Configuraciones globales del juego
+Configuraciones globales del juego.
+
+CAMBIO DE RENDIMIENTO:
+  WORLD_WIDTH / WORLD_HEIGHT reducidos de 12000×9000 a 6000×4500.
+
+  ¿Por qué?
+  · Los enemigos siempre spawnean en un radio de 650-1100 px alrededor
+    del jugador → el jugador nunca necesita recorrer el mundo completo.
+  · La SpatialGrid mejora: de ~10 800 celdas a ~2 700 celdas (×4 más rápida).
+  · El cálculo de teleport de enemigos (TELEPORT_DISTANCE) sigue funcionando.
+  · Con ChunkManager, la capa de sangre ya no depende del tamaño del mundo.
 """
 
 # CONFIGURACIÓN DE PANTALLA
@@ -8,8 +18,11 @@ BASE_HEIGHT = 720
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
-WORLD_WIDTH  = 2400 * 5   # 12 000 px de ancho
-WORLD_HEIGHT = 1800 * 5   # 9 000 px de alto
+# Mundo: reducido de 12000×9000 a 6000×4500
+# (los enemigos spawnean circulares alrededor del jugador, así que
+#  el tamaño del mundo solo afecta a los bordes y a la SpatialGrid)
+WORLD_WIDTH  = 6000   # era: 2400 * 5 = 12 000
+WORLD_HEIGHT = 4500   # era: 1800 * 5 =  9 000
 
 FPS = 60
 TITLE = "ProyectSurvivor"
@@ -105,7 +118,6 @@ UPGRADES = {
     },
 
     # ARTES OSCURAS — habilidad Ninja del Dash
-    # Aparece solo cuando: dash desbloqueado + Carga Rapida al max (3 stacks)
     'ninja_dash': {
         'name': 'Artes Oscuras',
         'desc': (
@@ -197,7 +209,7 @@ UPGRADES = {
         'category': 'survival',
     },
 
-    # AURA DE ESPINAS — daño en área (estilo ajo de Vampire Survivors)
+    # AURA DE ESPINAS
     'aura_espinas': {
         'name': 'Aura de Espinas',
         'desc': (

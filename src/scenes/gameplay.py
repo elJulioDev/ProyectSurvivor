@@ -242,7 +242,8 @@ class GameplayScene(Scene):
             f"Proyectiles: {d['projectiles']}  |  Enemi: {d['enemy_projectiles']}",
             f"Partículas: {d['particles_active']} (render: {d['particles_rendered']}) / {d['particles_capacity']}  |  Calidad: {q_str}",
             f"Kills este frame: {d.get('kills_this_frame', 0)}  |  Gemas XP: {d['gems_count']}",
-            f"Móvil: {mobile_str}  |  Camera zoom: {self.level.camera.zoom:.2f}",
+            f"Chunks: {d.get('chunks_active', '?')} activos / {d.get('chunks_total', '?')} en RAM  |  Zoom: {self.level.camera.zoom:.2f}",
+            f"Móvil: {mobile_str}",
             f"[X] Toggle Debug",
         ]
         y = 110

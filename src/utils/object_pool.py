@@ -1,9 +1,21 @@
 """
 ObjectPool con sistema de BAKING INMEDIATO de partículas estáticas.
 
-PARCHE 1: update_and_bake() ahora acepta cam_offset=(offset_x, offset_y)
-para convertir coordenadas de mundo a coordenadas de pantalla antes de
-hornear al blood_surface (que ahora es del tamaño de la ventana, no del mundo).
+CAMBIO vs versión anterior:
+  update_and_bake() ahora acepta `chunk_manager` (ChunkManager) en lugar
+  de `blood_surface`.
+
+  Cuando una partícula líquida se detiene, en vez de blitearla a una
+  superficie global con cálculos de offset de cámara, se llama a:
+      chunk_manager.bake_particle(p.x, p.y, surf)
+
+  El ChunkManager se encarga de encontrar el chunk correcto y dibujar
+  la partícula en las coordenadas locales de ese chunk. La cámara no
+  interviene en el proceso de baking → sin offset, sin scroll.
+
+  Se mantiene la firma legacy (blood_surface + cam_offset) por si
+  algún otro código la usa directamente, pero la ruta principal es
+  chunk_manager.
 """
 import pygame
 import math
@@ -69,8 +81,11 @@ class ParticlePool:
     """
     Pool circular de partículas con baking inmediato de estáticas.
 
-    PARCHE 1: update_and_bake() recibe cam_offset para calcular la posición
-    de pantalla correcta al hornear en el blood_surface (tamaño ventana).
+    Método principal: update_and_bake()
+      Acepta chunk_manager (preferido) o blood_surface (legacy).
+      Cuando una partícula líquida se detiene:
+        · chunk_manager → bake_particle(world_x, world_y, surf)
+        · blood_surface → blit directo con offset de cámara (legacy)
     """
     def __init__(self, capacity=1500):
         self.capacity   = capacity
@@ -143,12 +158,30 @@ class ParticlePool:
         self._alive_count += 1
         return slot
 
-    def update_and_bake(self, dt, blood_surface=None, cam_offset=(0, 0), zoom=1.0):
+    def update_and_bake(self, dt,
+                        blood_surface=None,
+                        cam_offset=(0, 0),
+                        zoom=1.0,
+                        chunk_manager=None):
+        """
+        Actualiza todas las partículas vivas y hornea las estáticas.
+
+        Parámetros:
+          chunk_manager  — instancia de ChunkManager (ruta preferida).
+                           Las partículas se hornean en coordenadas de mundo.
+          blood_surface  — Surface SRCALPHA global (ruta legacy).
+          cam_offset     — (offset_x, offset_y) de la cámara (solo legacy).
+          zoom           — zoom de la cámara (solo legacy).
+
+        Si se pasan ambos, chunk_manager tiene prioridad.
+        """
         if self._alive_count <= 0:
             self._alive_count = 0
             return
 
         freed = 0
+        use_chunks = chunk_manager is not None
+
         for p in self.pool:
             if not p.is_alive:
                 continue
@@ -159,15 +192,21 @@ class ParticlePool:
                 freed += 1
                 continue
 
-            if (blood_surface is not None and
-                    p.is_liquid and not p.is_chunk and
+            # ── Baking: partícula líquida que se ha detenido ──────────
+            if (p.is_liquid and not p.is_chunk and
                     abs(p.vel_x) < 0.1 and abs(p.vel_y) < 0.1):
+
                 surf = self.get_cached_surface('circle', p.color, p.size, 200)
                 if surf:
-                    # Multiplicar p.x y p.y por el zoom antes de sumar el offset
-                    bx = int(p.x * zoom + cam_offset[0] - surf.get_width()  // 2)
-                    by = int(p.y * zoom + cam_offset[1] - surf.get_height() // 2)
-                    blood_surface.blit(surf, (bx, by))
+                    if use_chunks:
+                        # ── Ruta preferida: bake en chunk (coords mundo) ──
+                        chunk_manager.bake_particle(p.x, p.y, surf)
+                    elif blood_surface is not None:
+                        # ── Ruta legacy: blit con offset de cámara ────────
+                        bx = int(p.x * zoom + cam_offset[0] - surf.get_width()  // 2)
+                        by = int(p.y * zoom + cam_offset[1] - surf.get_height() // 2)
+                        blood_surface.blit(surf, (bx, by))
+
                 p.is_alive = False
                 freed += 1
 
