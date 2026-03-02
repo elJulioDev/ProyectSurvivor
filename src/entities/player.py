@@ -38,6 +38,7 @@ class Player:
         self.invulnerable_frames = 0
 
         # SISTEMA DE ARMAS
+        self.passive_weapons = []
         self.weapons = [PistolWeapon(self)]
         self.current_weapon_index = 0
         self.unlocked_weapons = {'PistolWeapon'}
@@ -279,9 +280,16 @@ class Player:
         if weapon_class in weapon_map and weapon_class not in self.unlocked_weapons:
             new_weapon = weapon_map[weapon_class](self)
             new_weapon.set_projectile_pool(projectile_pool)
-            self.weapons.append(new_weapon)
+            
+            # Separar armas pasivas de armas activables
+            if weapon_class in ['NovaWeapon', 'OrbitalWeapon', 'BoomerangWeapon']:
+                self.passive_weapons.append(new_weapon)
+                print(f"✅ Habilidad Pasiva desbloqueada: {weapon_class}")
+            else:
+                self.weapons.append(new_weapon)
+                print(f"✅ Arma desbloqueada: {weapon_class}")
+                
             self.unlocked_weapons.add(weapon_class)
-            print(f"✅ Arma desbloqueada: {weapon_class}")
 
     def update(self, dt=1.0):
         if not self.is_alive:

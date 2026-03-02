@@ -116,7 +116,7 @@ class PistolWeapon(Weapon):
             image_type='circle'
         )
         p.color = (0, 255, 255)
-        self._apply_player_proj_mods(p, base_size=5)
+        self._apply_player_proj_mods(p, base_size=6)
 
         self.current_spread = min(self.current_spread + 0.05, 0.15)
         return True
@@ -471,14 +471,8 @@ class OrbitalWeapon(Weapon):
 class BoomerangWeapon(Weapon):
     """
     Boomerang Arcano — un único proyectil de ida y vuelta.
-
-    · Va hacia el cursor perforando infinitamente hasta MAX_DIST px.
-    · Al llegar a la distancia máxima invierte la dirección (regresa).
-    · En el regreso puede volver a dañar a los mismos enemigos.
-    · Si se activa mientras el boomerang vuela, el disparo se ignora
-      hasta que el proyectil regrese al jugador.
     """
-    MAX_DIST = 330  # px antes de invertir dirección
+    MAX_DIST = 400  # Aumentado el px antes de invertir dirección
 
     def __init__(self, owner):
         super().__init__(owner, cooldown=80, damage=60, kickback=0, shake=3.0, spread=0)
@@ -490,29 +484,39 @@ class BoomerangWeapon(Weapon):
     def update(self, dt=1.0):
         super().update(dt)
         p = self._proj
-        if p and p.is_alive:
-            if not self._returning:
-                dx = p.x - self._start_x
-                dy = p.y - self._start_y
-                if dx * dx + dy * dy >= self.MAX_DIST ** 2:
-                    # Invertir dirección y cambiar color para indicar el regreso
-                    p.vel_x  = -p.vel_x
-                    p.vel_y  = -p.vel_y
-                    p.hit_enemies.clear()   # puede volver a dañar en el regreso
-                    p.color  = (255, 140, 30)
-                    self._returning = True
+        if p:
+            if p.is_alive:
+                if not self._returning:
+                    dx = p.x - self._start_x
+                    dy = p.y - self._start_y
+                    if dx * dx + dy * dy >= self.MAX_DIST ** 2:
+                        # Invertir dirección y cambiar color para indicar el regreso
+                        p.vel_x  = -p.vel_x
+                        p.vel_y  = -p.vel_y
+                        p.hit_enemies.clear()   # puede volver a dañar en el regreso
+                        p.color  = (255, 140, 30)
+                        self._returning = True
+                else:
+                    # Cerca del jugador → el boomerang es recogido
+                    owner = self.owner
+                    dx = p.x - owner.x
+                    dy = p.y - owner.y
+                    if dx * dx + dy * dy < 45 ** 2: # Radio de captura más amable
+                        p.is_alive = False
+                        self._proj      = None
+                        self._returning = False
+                    elif dx * dx + dy * dy > 1500 ** 2: 
+                        # Si no es atrapado, requiere viajar un gran tramo (~1500px) para disiparse
+                        p.is_alive = False
+                        self._proj      = None
+                        self._returning = False
             else:
-                # Cerca del jugador → el boomerang es recogido
-                owner = self.owner
-                dx = p.x - owner.x
-                dy = p.y - owner.y
-                if dx * dx + dy * dy < 38 ** 2:
-                    p.is_alive = False
-                    self._proj      = None
-                    self._returning = False
-        else:
-            self._proj      = None
-            self._returning = False
+                # Si el proyectil muere forzosamente (ej. chocó con el límite del mapa)
+                # Reseteamos el arma pero aplicamos el cooldown para evitar el "auto-reload rápido"
+                if self.current_cooldown <= 0:
+                    self.current_cooldown = self.cooldown
+                self._proj      = None
+                self._returning = False
 
     def auto_shoot(self, dt=1.0):
         # El LevelManager llama esto en cada frame. Dispara cuando el cooldown llegue a 0.
@@ -525,7 +529,6 @@ class BoomerangWeapon(Weapon):
         return False
 
     def _fire_boomerang(self):
-        # Lógica original de disparo que antes estaba en activate()
         if self._proj and self._proj.is_alive:
             return False
         if not self.projectile_pool:
@@ -546,12 +549,10 @@ class BoomerangWeapon(Weapon):
             speed=15 * speed_mult,
             damage=final_dmg,
             penetration=9999 + extra_pen,   # perfora todo
-            lifetime=500,
+            lifetime=800, # Aumentamos su lifetime por si viaja tramos muy largos
             image_type='square'
         )
         p.color         = (255, 220, 60)
-        
-        # Aplicamos el fix del tamaño para este proyectil en particular
         self._apply_player_proj_mods(p, base_size=11)
 
         self._proj      = p

@@ -374,11 +374,14 @@ class LevelManager:
             self.hit_particle_cooldown -= dt
 
         kb_mult = getattr(self.player, 'knockback_mult', 1.0)
+        
+        # Iterar sobre AMBAS listas
+        all_weapons = self.player.weapons + getattr(self.player, 'passive_weapons', [])
 
-        for weapon in self.player.weapons:
+        for weapon in all_weapons:
             weapon.update(dt=dt)
 
-            # Auto-disparo (Nova, etc.)
+            # Auto-disparo (Nova, Boomerang, etc.)
             weapon.auto_shoot(dt)
 
             # Orbes Orbitales: detección de impacto pasiva
@@ -545,7 +548,8 @@ class LevelManager:
             self._render_aura(screen)
 
         if self.player:
-            for weapon in self.player.weapons:
+            all_weapons = self.player.weapons + getattr(self.player, 'passive_weapons', [])
+            for weapon in all_weapons:
                 if hasattr(weapon, 'render'):
                     weapon.render(screen, cam)
             self.player.render(screen, cam)
