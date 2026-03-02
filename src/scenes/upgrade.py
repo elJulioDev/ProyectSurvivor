@@ -18,7 +18,8 @@ import pygame
 import random
 import math
 from scenes.scene import Scene
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT, UPGRADES
+from settings import WINDOW_WIDTH, WINDOW_HEIGHT
+from data.upgrades import UPGRADES
 
 RARITY_COLORS = {
     'common':    (160, 165, 175),

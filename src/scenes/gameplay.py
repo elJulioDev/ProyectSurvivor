@@ -10,11 +10,11 @@ GameplayScene optimizado:
 PARCHE 2: MOBILE_CAMERA_ZOOM aplicado en on_enter() cuando se detecta móvil.
 """
 import pygame
-import math
-from scenes.scene   import Scene
-from settings       import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK, WHITE, UPGRADES
-from managers.level_manager  import LevelManager
-from ui.hud          import HUD
+from scenes.scene import Scene
+from settings import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
+from data.upgrades import UPGRADES
+from managers.level_manager import LevelManager
+from ui.hud import HUD
 from ui.mobile_controls import MobileControls
 
 # FPS objetivo por defecto — cambiar aquí o con F6 en juego
