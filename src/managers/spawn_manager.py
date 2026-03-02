@@ -1,15 +1,29 @@
 """
-SpawnManager — Vampire Survivors style
-  · Spawn CIRCULAR alrededor del jugador desde TODAS las direcciones
-  · Cap dinámico: de 200 a 2000+ en ~20 minutos (PC) / 80-680 en móvil
-  · Spawn en lotes (batch) para simular la densidad de VS
-  · Tipos nuevos: exploder, spitter  (aparecen progresivamente)
-  · Escalado de vida proporcional al tiempo
-  · Reciclaje sin GC (dead_pool)
+SpawnManager — Vampire Survivors style (v2)
 
-PARCHE 3: Cap de enemigos reducido en Android/móvil:
-  · PC:     200 + (minutes * 120)  → hasta ~2000 a los 15 min
-  · Móvil:   80 + (minutes * 40)  → hasta  ~680 a los 15 min
+SISTEMA DE CAPS PROGRESIVOS:
+  El juego empieza con pocos enemigos (30 PC / 20 móvil) y escala
+  agresivamente hasta un hard cap absoluto (~2000 PC / 680 móvil).
+
+  La curva tiene tres fases:
+    · Fase 1  (0–3 min)   : Cap bajo, spawn lento  → "aprendizaje"
+    · Fase 2  (3–12 min)  : Cap sube rápido         → presión creciente
+    · Fase 3  (12+ min)   : Cap máximo alcanzado     → horda sostenida
+
+RECICLAJE ESTRICTO (Object Pooling):
+  · Al iniciar, se pre-alojan N instancias de Enemy inactivas en dead_pool.
+    Esto evita tirones del GC al crear objetos durante la partida.
+  · Cuando el cap actual > enemigos vivos, el SpawnManager rellena el
+    déficit casi instantáneamente con enemigos del pool.
+  · Si el pool está vacío y hace falta un enemigo nuevo, se instancia
+    uno (solo ocurre en late-game si el pool se agota).
+
+ILUSIÓN DEL ENJAMBRE:
+  · try_teleport_distant_enemies() mueve enemigos lejanos frente al jugador
+    → con 400 enemigos todos concentrados alrededor de la cámara, el juego
+    se ve tan "lleno" como si hubiera 2000 repartidos por el mapa.
+
+PARCHE 3: Cap diferente según plataforma (mobile flag).
 """
 
 import random
@@ -17,26 +31,44 @@ import math
 from entities.enemy import Enemy
 from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 
-# Radio de spawn alrededor del jugador (en píxeles de mundo).
+# Spawn circular alrededor del jugador
 SPAWN_RADIUS_MIN = 650
 SPAWN_RADIUS_MAX = 1100
 
-# Si un enemigo vivo supera esta distancia del jugador se teletransporta
-TELEPORT_DISTANCE = 1200
+# Enemigos más allá de esta distancia se teletransportan al frente del jugador
+TELEPORT_DISTANCE = 1050   # reducido de 1200 para mayor densidad aparente
+
+# Hard caps absolutos (RAM nunca supera estos valores)
+_HARD_CAP_PC     = 2000
+_HARD_CAP_MOBILE = 680
+
+# Pool inicial pre-alocado
+# No instanciamos el hard cap completo (alargaría la carga),
+# sino suficientes para los primeros minutos sin ningún tirón.
+_INITIAL_POOL_PC     = 150
+_INITIAL_POOL_MOBILE = 80
+
 
 class SpawnManager:
     def __init__(self, mobile=False):
-        self.game_time        = 0       # en frames (60 fps → 1s = 60)
+        self.game_time        = 0       # en frames (60 fps → 1 s = 60)
         self.spawn_timer      = 0
         self.difficulty_level = 1.0
 
-        self.base_spawn_rate = 20       # frames entre spawns al inicio
-        self.min_spawn_rate  = 1        # late game (~60 enemigos/s)
-
-        # PARCHE 3: guardar flag de plataforma
         self._is_mobile = mobile
 
+        # ── Dead pool (Object Pool)
         self.dead_pool: list[Enemy] = []
+
+        # Pre-alojar enemigos inactivos para evitar GC al inicio
+        initial_pool = _INITIAL_POOL_MOBILE if mobile else _INITIAL_POOL_PC
+        for _ in range(initial_pool):
+            e = Enemy(-2000, -2000, enemy_type='small')
+            e.is_alive = False
+            self.dead_pool.append(e)
+
+        # Hard cap absoluto (nunca se superará)
+        self.absolute_max = _HARD_CAP_MOBILE if mobile else _HARD_CAP_PC
 
     def add_to_dead_pool(self, enemy: Enemy):
         self.dead_pool.append(enemy)
@@ -48,42 +80,74 @@ class SpawnManager:
         minutes = (self.game_time / 60) / 60
         self.difficulty_level = 1.0 + (minutes * 0.15)
 
-        # PARCHE 3: cap dinámico diferente según plataforma
-        if self._is_mobile:
-            max_enemies = int(80 + (minutes * 40))    # máx ~680 a los 15 min
-        else:
-            max_enemies = int(200 + (minutes * 120))  # máx ~2000 a los 15 min
+        # Curva de cap progresiva
+        #
+        #   Fase 1  (0–3 min):  cap sube muy lento   → sensación de inicio
+        #   Fase 2  (3–12 min): cap sube agresivo     → horda en crecimiento
+        #   Fase 3  (12+ min):  cap se acerca al hard cap
+        #
+        #   PC:     min0 → 35  |  min3 → 100  |  min12 → 1500  |  min15+ → 2000
+        #   Móvil:  min0 → 20  |  min3 →  45  |  min12 →  550  |  min15+ →  680
 
-        if current_enemy_count >= max_enemies:
+        if self._is_mobile:
+            if minutes < 3:
+                current_cap = int(20 + minutes * 8)           # 20 → 44
+            elif minutes < 12:
+                current_cap = int(44 + (minutes - 3) * 55)    # 44 → 539
+            else:
+                current_cap = int(539 + (minutes - 12) * 47)  # 539 → hard cap
+        else:
+            if minutes < 3:
+                current_cap = int(35 + minutes * 21)           # 35 → 98
+            elif minutes < 12:
+                current_cap = int(98 + (minutes - 3) * 155)    # 98 → 1493
+            else:
+                current_cap = int(1493 + (minutes - 12) * 169) # 1493 → hard cap
+
+        # Nunca superar el hard cap absoluto
+        current_cap = min(current_cap, self.absolute_max)
+
+        # Comprobar si hay margen para más enemigos
+        if current_enemy_count >= current_cap:
             return []
 
         if self.spawn_timer > 0:
             return []
 
-        # Tasa de spawn
-        current_rate = max(
-            self.min_spawn_rate,
-            self.base_spawn_rate - (minutes * 0.9)
-        )
-        self.spawn_timer = current_rate
+        # Tasa de spawn dinámica
+        # Si el déficit es grande (principio de partida o tras una muerte
+        # masiva), rellenamos rápido. Si ya estamos cerca del cap, frenamos.
+        deficit = current_cap - current_enemy_count
 
-        # BATCH: cuántos enemigos nacen por tick
-        room = max_enemies - current_enemy_count
-        if minutes < 2:
+        if deficit > 30:
+            # Relleno agresivo: llenar la pantalla casi instantáneamente
+            self.spawn_timer = 1
+        elif deficit > 10:
+            self.spawn_timer = max(1, int(8 - minutes * 0.3))
+        else:
+            # Cerca del cap: goteo lento (solo rellena los recién muertos)
+            self.spawn_timer = max(1, int(18 - minutes * 0.5))
+
+        # Batch size dinámico
+        # Escala con el déficit y el tiempo de juego
+        if deficit > 50:
+            batch = random.randint(5, 12 + int(minutes * 1.5))
+        elif deficit > 20:
+            batch = random.randint(3, 8 + int(minutes))
+        elif minutes < 2:
             batch = 1
         elif minutes < 5:
-            batch = random.randint(1, 2)
+            batch = random.randint(1, 3)
         elif minutes < 10:
-            batch = random.randint(2, 4)
-        elif minutes < 20:
-            batch = random.randint(3, 6)
+            batch = random.randint(2, 5)
         else:
-            batch = random.randint(5, 10)
+            batch = random.randint(3, 7)
 
-        batch = min(batch, room)
+        batch = min(batch, deficit)
         if batch <= 0:
             return []
 
+        # Generar enemigos
         spawned = []
         for _ in range(batch):
             e = self._spawn_enemy(camera_offset, player_pos)
@@ -93,6 +157,12 @@ class SpawnManager:
 
     def try_teleport_distant_enemies(self, enemies: list,
                                      camera_offset=(0, 0), player_pos=None):
+        """
+        Teletransporta enemigos lejanos frente al jugador.
+        Con TELEPORT_DISTANCE reducido a 1050, los enemigos que salen del
+        borde visible reaparecen mucho más rápido → mayor densidad aparente
+        sin crear nuevas instancias.
+        """
         if player_pos:
             ref_x, ref_y = player_pos
         else:
@@ -127,11 +197,13 @@ class SpawnManager:
         x, y        = self._get_spawn_position(camera_offset, player_pos)
 
         if self.dead_pool:
+            # Reciclar instancia existente (sin GC)
             enemy = self.dead_pool.pop()
             enemy.recycle(x, y, speed_multiplier=speed_mult,
                           enemy_type=enemy_type, health_mult=health_mult)
             return enemy
         else:
+            # Solo instanciar cuando el pool está vacío
             return Enemy(x, y, speed_multiplier=speed_mult,
                          enemy_type=enemy_type, health_mult=health_mult)
 
@@ -145,10 +217,8 @@ class SpawnManager:
         for _ in range(15):
             angle  = random.uniform(0, math.pi * 2)
             radius = random.uniform(SPAWN_RADIUS_MIN, SPAWN_RADIUS_MAX)
-
             x = cx + math.cos(angle) * radius
             y = cy + math.sin(angle) * radius
-
             if -250 <= x <= WORLD_WIDTH + 250 and -250 <= y <= WORLD_HEIGHT + 250:
                 return x, y
 
