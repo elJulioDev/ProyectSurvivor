@@ -155,7 +155,7 @@ class ShotgunWeapon(Weapon):
                 image_type='square'
             )
             p.color = (255, random.randint(100, 150), 0)
-            self._apply_player_proj_mods(p, base_size=4)
+            self._apply_player_proj_mods(p, base_size=7)
 
         return True
 
@@ -235,7 +235,7 @@ class AssaultRifleWeapon(Weapon):
             image_type='square'
         )
         p.color = (255, 230, 100)
-        self._apply_player_proj_mods(p, base_size=5)
+        self._apply_player_proj_mods(p, base_size=7)
 
         self.current_spread = min(self.current_spread + 0.04, self.max_spread)
         return True
