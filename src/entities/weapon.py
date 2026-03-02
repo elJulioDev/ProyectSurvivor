@@ -12,6 +12,11 @@ NUEVAS ARMAS (Vampire Survivors style):
 BASE:
   - Weapon.auto_shoot(dt): Override en armas de disparo pasivo. LevelManager
     lo llama cada frame para que las armas auto-activas gestionen su propio timing.
+
+OPTIMIZACIONES MÓVIL (v2):
+  - OrbitalWeapon: superficie de glow pre-allocada y cacheada.
+    Antes creaba 1 Surface(SRCALPHA) por orbe por frame = 180 allocations/s a 60fps.
+    Ahora se crea UNA VEZ (o cuando cambia el radio del orbe) y se reutiliza.
 """
 import math, random, pygame, os
 from utils.paths import resource_path
@@ -339,9 +344,6 @@ class NovaWeapon(Weapon):
         if self.current_cooldown <= 0 and self.projectile_pool:
             if self.activate():
                 self.current_cooldown = self.cooldown
-                # Shake de cámara al explotar
-                if hasattr(self.owner, 'weapons'):
-                    pass  # shake se aplica dentro de activate via _apply_physics si queremos
 
     def activate(self, camera=None):
         if not self.projectile_pool:
@@ -385,6 +387,11 @@ class OrbitalWeapon(Weapon):
     · Cooldown de 0.5 s por enemigo para no spamear daño.
     · Se beneficia de global_damage_mult y knockback_mult.
     · LevelManager._update_weapons() llama check_hits() para resolver colisiones.
+
+    OPTIMIZACIÓN MÓVIL:
+    · _glow_surf pre-allocada en __init__ y reutilizada en render().
+      Antes: 1 Surface(SRCALPHA) nueva por orbe por frame → 180 allocs/s a 60fps.
+      Ahora: 1 Surface creada al inicio; se reutiliza limpiándola con fill().
     """
 
     ORB_RADIUS   = 15       # radio visual y de colisión del orbe
@@ -397,6 +404,16 @@ class OrbitalWeapon(Weapon):
         self.orbit_radius = 95
         self._angle       = 0.0
         self._hit_cd: dict[int, float] = {}   # id(enemy) → frames restantes
+
+        # ── Caché de glow ─────────────────────────────────────────────────
+        # gs = ORB_RADIUS * 3 = 45, diámetro = 90.
+        # Se crea una sola vez; render() la limpia y redibujar NO es necesario
+        # porque el glow es siempre el mismo círculo con el mismo color/alpha.
+        # Solo necesitamos crearla una vez y reutilizarla con blit.
+        gs = self.ORB_RADIUS * 3
+        self._glow_surf = pygame.Surface((gs * 2, gs * 2), pygame.SRCALPHA)
+        pygame.draw.circle(self._glow_surf, (50, 180, 255, 55), (gs, gs), gs)
+        self._glow_size = gs   # guardamos para el blit offset
 
     def update(self, dt=1.0):
         super().update(dt)
@@ -451,18 +468,17 @@ class OrbitalWeapon(Weapon):
         return True   # siempre activo
 
     def render(self, screen, camera):
+        gs = self._glow_size   # = ORB_RADIUS * 3
+
         for ox, oy in self.get_orb_positions():
             sp = camera.apply_coords(ox, oy)
             cx, cy = int(sp[0]), int(sp[1])
             r  = self.ORB_RADIUS
 
-            # Glow exterior suave
-            gs = r * 3
-            glow = pygame.Surface((gs * 2, gs * 2), pygame.SRCALPHA)
-            pygame.draw.circle(glow, (50, 180, 255, 55), (gs, gs), gs)
-            screen.blit(glow, (cx - gs, cy - gs))
+            # ── Glow: blit de la superficie pre-allocada (sin crear Surface) ──
+            screen.blit(self._glow_surf, (cx - gs, cy - gs))
 
-            # Cuerpo del orbe
+            # Cuerpo del orbe (dibujo directo, sin Surface intermedia)
             pygame.draw.circle(screen, (100, 210, 255), (cx, cy), r)
             pygame.draw.circle(screen, (220, 245, 255), (cx, cy), r // 2)
             pygame.draw.circle(screen, (180, 230, 255), (cx, cy), r, 2)
@@ -501,31 +517,26 @@ class BoomerangWeapon(Weapon):
                     owner = self.owner
                     dx = p.x - owner.x
                     dy = p.y - owner.y
-                    if dx * dx + dy * dy < 45 ** 2: # Radio de captura más amable
+                    if dx * dx + dy * dy < 45 ** 2:
                         p.is_alive = False
                         self._proj      = None
                         self._returning = False
-                    elif dx * dx + dy * dy > 1500 ** 2: 
-                        # Si no es atrapado, requiere viajar un gran tramo (~1500px) para disiparse
+                    elif dx * dx + dy * dy > 1500 ** 2:
                         p.is_alive = False
                         self._proj      = None
                         self._returning = False
             else:
-                # Si el proyectil muere forzosamente (ej. chocó con el límite del mapa)
-                # Reseteamos el arma pero aplicamos el cooldown para evitar el "auto-reload rápido"
                 if self.current_cooldown <= 0:
                     self.current_cooldown = self.cooldown
                 self._proj      = None
                 self._returning = False
 
     def auto_shoot(self, dt=1.0):
-        # El LevelManager llama esto en cada frame. Dispara cuando el cooldown llegue a 0.
         if self.current_cooldown <= 0 and self.projectile_pool:
             if self._fire_boomerang():
                 self.current_cooldown = self.cooldown
 
     def activate(self, camera=None):
-        # Retorna False para bloquear el disparo manual; así no funciona con el click
         return False
 
     def _fire_boomerang(self):
@@ -548,8 +559,8 @@ class BoomerangWeapon(Weapon):
             px, py, angle,
             speed=15 * speed_mult,
             damage=final_dmg,
-            penetration=9999 + extra_pen,   # perfora todo
-            lifetime=800, # Aumentamos su lifetime por si viaja tramos muy largos
+            penetration=9999 + extra_pen,
+            lifetime=800,
             image_type='square'
         )
         p.color         = (255, 220, 60)
