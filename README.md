@@ -2,8 +2,8 @@
 Bienvenido a **ProyectSurvivor**. Sigue estas instrucciones para configurar el entorno de desarrollo y ejecutar el juego en tu máquina local.
 
 ## Prerrequisitos
-* **Python 3.12** instalado en tu sistema.
-    * Puedes verificar tu versión ejecutando: `python --version`
+* **[uv](https://docs.astral.sh/uv/)** instalado (gestiona solo el Python del proyecto, no hace falta instalar Python a mano).
+    * Puedes verificarlo ejecutando: `uv --version`
 
 ## Instalación y Configuración
 Sigue estos pasos para crear un entorno virtual aislado y preparar el juego.
@@ -14,25 +14,21 @@ git clone https://github.com/elJulioDev/ProyectSurvivor.git
 cd ProyectSurvivor
 ```
 
-2. **Crear el Entorno Virtual (Python 3.12):**
+2. **Instalar dependencias:**
+`uv` crea el `.venv` (Python 3.12) y lo sincroniza con `uv.lock`.
 ```bash
-python3.12 -m venv .venv
+uv sync
 ```
 
-3. **Activar el Entorno Virtual:**
-- Windows CMD
+3. **Ejecutar el Juego**
+Desde la raíz del proyecto:
 ```bash
-.venv\Scripts\activate.bat
+uv run src/main.py
 ```
 
-4. **Instalar Dependencias:**
-Con el entorno activo, instala las librerías necesarias.
+## Gestión de dependencias
+`pyproject.toml` es la fuente de verdad y `uv.lock` fija las versiones exactas.
 ```bash
-pip install -r requirements.txt
-```
-
-5. **Ejecutar el Juego**
-Para iniciar el juego, asegúrate de estar en la carpeta raíz del proyecto y tener el entorno virtual activado. Luego ejecuta el archivo principal que se encuentra dentro de la carpeta src.
-```bash
-python src/main.py
+uv add <paquete>     # añade una dependencia
+uv remove <paquete>  # la elimina
 ```
