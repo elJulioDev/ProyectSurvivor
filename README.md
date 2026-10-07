@@ -32,8 +32,7 @@ Muévete, dispara y aguanta: las hordas crecen con el tiempo, cada enemigo caíd
 - **Dificultad escalada** por tiempo de partida *y* por nivel del jugador, para que subir de nivel no trivialice el juego.
 - **Extras**: dash con enfriamiento, aura de daño/repulsión con pulso, modo ninja al esquivar y sacudida de cámara.
 - **Rendimiento cuidado**: pool de objetos (sin reservas de memoria en partida), grid espacial para colisiones, sangre persistente por chunks, partículas con nivel de detalle dinámico e IA actualizada por lotes.
-- **Android**: detecta la plataforma y cambia a controles táctiles (joystick + botones) con zoom de cámara 1.2.
-- **Resolución virtual 1280×720** escalada al monitor respetando el 16:9: sin recorte ni deformación en pantallas 16:10, 21:9 o móviles 20:9.
+- **Resolución virtual 1280×720** escalada al monitor respetando el 16:9: sin recorte ni deformación en pantallas 16:10 o 21:9.
 
 ## Capturas
 
@@ -54,7 +53,7 @@ Muévete, dispara y aguanta: las hordas crecen con el tiempo, cada enemigo caíd
 - **Python 3.12** o superior (lo gestiona `uv`, no hace falta instalarlo a mano).
 - **[uv](https://docs.astral.sh/uv/)** para el entorno y las dependencias.
 - **pygame 2.6.1** (se instala solo con `uv sync`).
-- Linux, Windows, macOS o Android (python-for-android/Kivy).
+- Linux, Windows o macOS.
 
 ## Instalación
 
@@ -96,8 +95,6 @@ Muévete, dispara y aguanta: las hordas crecen con el tiempo, cada enemigo caíd
 | Elegir mejora | `1` `2` `3` o click |
 
 Los menús (inicio, pausa, mejoras y fin de partida) se manejan tanto con el teclado como con el ratón.
-
-En **Android** los controles aparecen en pantalla: joystick virtual para moverse, botón de disparo, botón de dash y botones para cambiar de arma. También puedes forzarlos en escritorio con `F5`.
 
 ## Mecánicas
 
@@ -170,7 +167,6 @@ ProyectSurvivor/
 ├── uv.lock              # versiones exactas fijadas
 ├── assets/              # sonidos e imágenes
 ├── docs/screenshots/    # capturas usadas en este README
-├── game.spec            # configuración de PyInstaller (local, ignorada por git)
 └── src/                 # código del juego (paquete importable)
     ├── settings.py      # constantes y balance
     ├── game.py          # gestor de escenas
@@ -178,7 +174,7 @@ ProyectSurvivor/
     ├── entities/        # jugador, enemigos, armas, proyectiles, partículas, gemas
     ├── managers/        # lógica de partida (nivel, oleadas y spawns)
     ├── scenes/          # menú, gameplay, pausa, mejoras y fin de partida
-    ├── ui/              # HUD y controles táctiles
+    ├── ui/              # HUD y controles en pantalla
     └── utils/           # cámara, grid espacial, chunks de sangre, pools, rutas
 ```
 
@@ -224,9 +220,8 @@ Casi todos los valores que afectan a la dificultad están en `src/settings.py`:
 | `ENEMY_SPEED` | 1.5 | velocidad base de los enemigos |
 | `ENEMY_SIZE` | 25 | tamaño base (los tipos lo multiplican) |
 | `WORLD_WIDTH` / `WORLD_HEIGHT` | 12000 / 9000 | tamaño del escenario |
-| `MOBILE_CAMERA_ZOOM` | 1.2 | zoom de cámara en móvil |
 
-Otros ajustes útiles: `_HARD_CAP_PC` y `_HARD_CAP_MOBILE` en `spawn_manager.py`, y el tope de partículas en `LevelManager.__init__` (1500 en PC, 600 en móvil).
+Otros ajustes útiles: `_HARD_CAP_PC` en `spawn_manager.py` y el tope de partículas en `LevelManager.__init__`.
 
 ### Teclas de depuración
 
@@ -235,7 +230,6 @@ Otros ajustes útiles: `_HARD_CAP_PC` y `_HARD_CAP_MOBILE` en `spawn_manager.py`
 | `X` | Muestra/oculta el panel de estadísticas (FPS, entidades, chunks, calidad) |
 | `F1` | Sube un nivel al instante |
 | `F2` | Imprime en consola las mejoras acumuladas |
-| `F5` | Activa/desactiva los controles táctiles |
 | `F6` | Cambia el objetivo de FPS (60 / 120 / 240 / ilimitado) |
 | `F7` | Aplica **todas** las mejoras y pone al jugador en nivel 999 |
 | `H` | Cura al jugador 10 puntos |
@@ -243,29 +237,7 @@ Otros ajustes útiles: `_HARD_CAP_PC` y `_HARD_CAP_MOBILE` en `spawn_manager.py`
 > [!TIP]
 > Para probar contenido sin esperar, usa `F7`: desbloquea todas las armas, mejoras y el dash, y pone al jugador al nivel máximo. Combinado con `F6` puedes comprobar cómo se comporta el juego a distintos framerates.
 
-### Compilar un ejecutable
-
-El proyecto incluye `game.spec` para [PyInstaller](https://pyinstaller.org/):
-
-```bash
-uv add --dev pyinstaller
-uv run pyinstaller game.spec
-```
-
-El ejecutable aparece en `dist/ProyectSurvivor`.
-
-> [!WARNING]
-> `game.spec` está en `.gitignore`: es configuración **local**, no forma parte del repositorio. Si añades assets nuevos, actualiza la lista `datas` del archivo.
-
 ## Solución de problemas
-
-> [!NOTE]
-> **Todos los archivos aparecen como modificados.**
-> Al pasar el proyecto entre Windows y Linux, Git ve cambios de fin de línea (CRLF ↔ LF). El repositorio fuerza LF con `.gitattributes`; si aun así aparecen esos cambios en tu clon, desactiva la conversión automática:
->
-> ```bash
-> git config core.autocrlf input
-> ```
 
 > [!NOTE]
 > **`ModuleNotFoundError: No module named 'src'`.**
@@ -275,14 +247,7 @@ El ejecutable aparece en `dist/ProyectSurvivor`.
 > **`ModuleNotFoundError: No module named 'pygame'`.**
 > El entorno no está sincronizado: ejecuta `uv sync`.
 
-> [!CAUTION]
-> **En Android el rendimiento es más frágil.** El tope de horda baja a 680 y el pool de partículas a 600. Subirlos en un móvil de gama media puede desplomar el framerate.
-
 Si el juego va lento en escritorio, comprueba la resolución del monitor: cuanto más tenga que escalar por encima de 1280×720, más trabajo tiene el escalado por frame.
-
-## Licencia
-
-Este proyecto todavía no tiene una licencia definida. Hasta que se añada una, el código no puede reutilizarse libremente; si quieres publicarlo con una licencia abierta, un archivo `LICENSE` (por ejemplo MIT) es el siguiente paso.
 
 ---
 
