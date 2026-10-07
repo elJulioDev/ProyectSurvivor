@@ -11,7 +11,7 @@ MEJORAS v2:
 """
 import pygame
 import math
-from settings import YELLOW, WORLD_WIDTH, WORLD_HEIGHT
+from src.settings import YELLOW, WORLD_WIDTH, WORLD_HEIGHT
 
 
 class Projectile:

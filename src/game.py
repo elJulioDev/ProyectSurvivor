@@ -1,5 +1,5 @@
 import pygame
-from scenes.menu import MenuScene
+from src.scenes.menu import MenuScene
 
 class Game:
     def __init__(self, surface):

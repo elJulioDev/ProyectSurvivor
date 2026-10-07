@@ -24,7 +24,7 @@ Integración:
 """
 
 import pygame
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT
+from src.settings import WINDOW_WIDTH, WINDOW_HEIGHT
 
 # Configuración
 CHUNK_SIZE          = 1000   # px de mundo por lado del chunk

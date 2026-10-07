@@ -55,7 +55,9 @@ PLAYER_FRICTION = 0.85
 
 # Enemigos
 ENEMY_SIZE = 25
-ENEMY_SPEED = 2
+# Velocidad base (px por frame lógico a 60fps). El jugador corre a PLAYER_SPEED=6,
+# así que a 1.5 los enemigos van al ~25-40% de la velocidad del jugador.
+ENEMY_SPEED = 1.5
 
 # Juego
 ENEMIES_PER_WAVE = 5

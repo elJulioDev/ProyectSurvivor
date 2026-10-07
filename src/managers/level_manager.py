@@ -13,18 +13,19 @@ CAMBIOS vs versión anterior:
 import pygame
 import math
 import random
-from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
-from entities.player     import Player
-from entities.particle   import ParticleSystem
-from entities.weapon     import LaserWeapon, OrbitalWeapon
-from entities.projectile import EnemyProjectile
-from utils.camera        import Camera
-from utils.object_pool   import ProjectilePool, ParticlePool
-from utils.spatial_grid  import SpatialGrid
-from utils.chunk_manager import ChunkManager
-from managers.spawn_manager  import SpawnManager
-from entities.experience_gem import ExperienceGem
-from utils.platform_detect import is_mobile
+from src.settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
+from src.entities.player     import Player
+from src.entities.particle   import ParticleSystem
+from src.entities.weapon     import LaserWeapon, OrbitalWeapon
+from src.entities.projectile import EnemyProjectile
+from src.utils.camera        import Camera
+from src.utils.object_pool   import ProjectilePool, ParticlePool
+from src.utils.spatial_grid  import SpatialGrid
+from src.utils.chunk_manager import ChunkManager
+from src.managers.spawn_manager  import SpawnManager
+from src.entities.experience_gem import ExperienceGem
+from src.entities.enemy    import flush_bars
+from src.utils.platform_detect import is_mobile
 
 GEM_MERGE_INTERVAL  = 120
 GEM_MERGE_RADIUS    = 55
@@ -178,8 +179,8 @@ class LevelManager:
         if not use_mobile and mouse_pressed[0]:
             self.player.attack(self.camera)
 
-        cam_mouse = None if use_mobile else mouse_pos
-        self.camera.update(self.player, cam_mouse, dt)
+        # La cámara sigue solo al jugador (sin paralaje por ratón).
+        self.camera.update(self.player, dt)
 
         cam_offset = (self.camera.offset_x, self.camera.offset_y)
 
@@ -354,7 +355,6 @@ class LevelManager:
 
         spawn_add = self.spawn_manager.add_to_dead_pool
         on_killed = self._on_enemy_killed
-        player_vel = (self.player.vel_x, self.player.vel_y)
 
         for i, enemy in enumerate(self.enemies):
             if not enemy.is_alive:
@@ -362,14 +362,15 @@ class LevelManager:
                 continue
 
             if i % interval == current_batch:
-                enemy.update_ai(player_pos, sg, player_vel=player_vel)
+                enemy.update_ai(player_pos, sg)
 
             enemy.update_physics(dt)
             enemy.update(ps, dt)
 
-            action = enemy.update_special(player_pos, dt)
-            if action:
-                self._handle_enemy_action(action, enemy)
+            if enemy.special:
+                action = enemy.update_special(player_pos, dt)
+                if action:
+                    self._handle_enemy_action(action, enemy)
 
             dx = enemy.x - px
             dy = enemy.y - py
@@ -381,7 +382,8 @@ class LevelManager:
             else:
                 spawn_add(enemy)
 
-        self.enemies = list(buf)
+        # Intercambio de buffers: evita reasignar una lista de N elementos por frame.
+        self.enemies, self._active_enemies_buf = buf, self.enemies
 
     def _handle_enemy_action(self, action, enemy):
         if action['type'] == 'explosion':
@@ -508,51 +510,63 @@ class LevelManager:
             self.player.gain_experience(xp_bonus)
 
     def _merge_nearby_gems(self):
+        """Fusiona grupos de gemas cercanas.
+
+        Antes era un doble bucle O(n²) que con ~1500 gemas asentadas costaba
+        ~48ms en un solo frame (tirón visible cada GEM_MERGE_INTERVAL).
+        Ahora se indexan por celdas de GEM_MERGE_RADIUS y solo se comparan
+        las 9 celdas vecinas: O(n).
+        """
         if len(self.gems) < GEM_MERGE_MIN_COUNT:
             return
-        radius_sq = GEM_MERGE_RADIUS ** 2
-        visited   = [False] * len(self.gems)
-        new_gems  = []
 
-        for i, gem_a in enumerate(self.gems):
-            if visited[i]:
-                continue
-            if gem_a.is_magnetized or gem_a.z > 0:
-                visited[i] = True
-                new_gems.append(gem_a)
-                continue
-
-            group = [i]
-            ax, ay = gem_a.x, gem_a.y
-            for j in range(i + 1, len(self.gems)):
-                if visited[j]:
-                    continue
-                gem_b = self.gems[j]
-                if gem_b.is_magnetized or gem_b.z > 0:
-                    continue
-                dx = ax - gem_b.x
-                dy = ay - gem_b.y
-                if dx * dx + dy * dy <= radius_sq:
-                    group.append(j)
-
-            if len(group) >= GEM_MERGE_MIN_COUNT:
-                total_xp = sum(self.gems[idx].xp_value for idx in group)
-                cx = sum(self.gems[idx].x for idx in group) / len(group)
-                cy = sum(self.gems[idx].y for idx in group) / len(group)
-                merged = ExperienceGem(cx, cy, total_xp)
-                merged.z = merged.vz = merged.vx = merged.vy = 0
-                new_gems.append(merged)
-                for idx in group:
-                    visited[idx] = True
-            else:
-                for idx in group:
-                    if not visited[idx]:
-                        new_gems.append(self.gems[idx])
-                        visited[idx] = True
-
-        for i, gem in enumerate(self.gems):
-            if not visited[i]:
+        cs = GEM_MERGE_RADIUS
+        buckets: dict = {}
+        new_gems = []
+        for gem in self.gems:
+            # Las magnetizadas/volando ya no se fusionan: se conservan tal cual.
+            if gem.is_magnetized or gem.z > 0:
                 new_gems.append(gem)
+                continue
+            buckets.setdefault((int(gem.x // cs), int(gem.y // cs)), []).append(gem)
+
+        if not buckets:
+            self.gems = new_gems
+            return
+
+        radius_sq = cs * cs
+        merged_ids: set = set()
+
+        for (bx, by), cell in buckets.items():
+            for gem_a in cell:
+                if id(gem_a) in merged_ids:
+                    continue
+
+                ax, ay = gem_a.x, gem_a.y
+                group = [gem_a]
+                for nx in (bx - 1, bx, bx + 1):
+                    for ny in (by - 1, by, by + 1):
+                        for gem_b in buckets.get((nx, ny), ()):
+                            if gem_b is gem_a or id(gem_b) in merged_ids:
+                                continue
+                            dx = ax - gem_b.x
+                            dy = ay - gem_b.y
+                            if dx * dx + dy * dy <= radius_sq:
+                                group.append(gem_b)
+
+                merged_ids.add(id(gem_a))
+                if len(group) >= GEM_MERGE_MIN_COUNT:
+                    total_xp = sum(g.xp_value for g in group)
+                    cx = sum(g.x for g in group) / len(group)
+                    cy = sum(g.y for g in group) / len(group)
+                    merged = ExperienceGem(cx, cy, total_xp)
+                    merged.z = merged.vz = merged.vx = merged.vy = 0
+                    new_gems.append(merged)
+                    for g in group:
+                        merged_ids.add(id(g))
+                else:
+                    new_gems.append(gem_a)
+
         self.gems = new_gems
 
     # ── RENDER ──────────────────────────────────────────────────────────────
@@ -575,12 +589,20 @@ class LevelManager:
                 ep.render(screen, cam)
 
         self.enemies_rendered = 0
-        render_margin = 200
+        # Pre-culling barato por distancia al centro de la cámara: evita crear un
+        # Rect por enemigo y por frame (enemy.render() ya afina el culling).
+        # El radio cubre la media diagonal de pantalla + margen a zoom >= 1.
+        cam_cx   = cam.center_x
+        cam_cy   = cam.center_y
+        max_d_sq = ((WINDOW_WIDTH + WINDOW_HEIGHT) * 0.5 + 200) ** 2
         for enemy in self.enemies:
-            er = enemy.rect.inflate(render_margin * 2, render_margin * 2)
-            if is_on(er):
+            dx = enemy.x - cam_cx
+            dy = enemy.y - cam_cy
+            if dx * dx + dy * dy <= max_d_sq:
                 enemy.render(screen, cam)
                 self.enemies_rendered += 1
+
+        flush_bars(screen)
 
         if self.player:
             self._render_aura(screen)

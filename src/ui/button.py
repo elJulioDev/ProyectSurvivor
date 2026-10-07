@@ -1,5 +1,5 @@
 import pygame
-from settings import WHITE, BLACK, GRAY
+from src.settings import WHITE, BLACK, GRAY
 
 class Button:
     def __init__(self, x, y, width, height, text, font, 

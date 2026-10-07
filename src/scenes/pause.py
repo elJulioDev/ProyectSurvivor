@@ -4,8 +4,8 @@ Escena de Pausa — con clock propio para limitarse a 60fps.
 import pygame
 import math
 import sys
-from scenes.scene import Scene
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT
+from src.scenes.scene import Scene
+from src.settings import WINDOW_WIDTH, WINDOW_HEIGHT
 
 _C_BG         = (6,   7,  10)
 _C_PANEL      = (12,  14,  22)
@@ -187,7 +187,7 @@ class PauseScene(Scene):
 
     def _do_menu(self):
         pygame.mouse.set_visible(True)
-        from scenes.menu import MenuScene
+        from src.scenes.menu import MenuScene
         self.next_scene = MenuScene(self.game)
 
     def update(self):

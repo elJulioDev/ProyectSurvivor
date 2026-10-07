@@ -10,7 +10,7 @@ OrbitalWeapon v2:
   · _rebuild_glow() reconstruye la caché solo cuando cambia el radio del orbe.
 """
 import math, random, pygame, os
-from utils.paths import resource_path
+from src.utils.paths import resource_path
 
 def load_sound(filename):
     path = resource_path(os.path.join("assets", "sounds", filename))

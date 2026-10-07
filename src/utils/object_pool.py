@@ -19,9 +19,9 @@ CAMBIO vs versión anterior:
 """
 import pygame
 import math
-from entities.projectile import Projectile
-from entities.particle   import Particle
-from settings import WINDOW_HEIGHT, WINDOW_WIDTH
+from src.entities.projectile import Projectile
+from src.entities.particle   import Particle
+from src.settings import WINDOW_HEIGHT, WINDOW_WIDTH
 
 BLOOD_RED  = (160,  0,  0)
 DARK_BLOOD = ( 80,  0,  0)

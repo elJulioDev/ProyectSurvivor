@@ -2,8 +2,8 @@
 Gestor de oleadas optimizado
 """
 import math
-from entities.enemy import Enemy
-from settings import ENEMIES_PER_WAVE
+from src.entities.enemy import Enemy
+from src.settings import ENEMIES_PER_WAVE
 
 class WaveManager:
     def __init__(self):

@@ -4,8 +4,8 @@ Escena Game Over — con clock propio para limitarse a 60fps.
 import pygame
 import math
 import random
-from scenes.scene import Scene
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT
+from src.scenes.scene import Scene
+from src.settings import WINDOW_WIDTH, WINDOW_HEIGHT
 
 C_BG       = (6,   7,  10)
 C_RED      = (210,  30,  30)
@@ -274,11 +274,11 @@ class GameOverScene(Scene):
         return self.game.get_mouse_pos()
 
     def _go_retry(self):
-        from scenes.gameplay import GameplayScene
+        from src.scenes.gameplay import GameplayScene
         self.next_scene = GameplayScene(self.game)
 
     def _go_menu(self):
-        from scenes.menu import MenuScene
+        from src.scenes.menu import MenuScene
         self.next_scene = MenuScene(self.game)
 
     def update(self):

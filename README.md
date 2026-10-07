@@ -23,7 +23,7 @@ uv sync
 3. **Ejecutar el Juego**
 Desde la raíz del proyecto:
 ```bash
-uv run src/main.py
+uv run main.py
 ```
 
 ## Gestión de dependencias
@@ -31,4 +31,19 @@ uv run src/main.py
 ```bash
 uv add <paquete>     # añade una dependencia
 uv remove <paquete>  # la elimina
+```
+
+## Estructura del proyecto
+```
+main.py          # punto de entrada (uv run main.py)
+assets/          # sonidos e imágenes
+src/             # código del juego (paquete Python)
+  settings.py    # constantes y balance
+  game.py        # gestor de escenas
+  data/          # datos de contenido (mejoras)
+  entities/      # jugador, enemigos, armas, partículas...
+  managers/      # lógica de partida (nivel, spawns)
+  scenes/        # menú, gameplay, pausa, mejoras, game over
+  ui/            # HUD y controles táctiles
+  utils/         # cámara, grid espacial, chunks, pools
 ```

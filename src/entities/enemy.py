@@ -1,19 +1,50 @@
 """
 Enemy optimizado:
 - Glow del Exploder: caché de superficies por (radius_bucket, alpha_bucket).
-- AI anti-clustering con carril determinista, separación cuadrática, predicción del jugador.
+- Sprite por colorkey (no per-pixel alpha): blit ~2x más rápido.
+- Barras de vida en batch (flush_bars): ~4.6ms -> ~0.4ms con 1500 enemigos.
+- AI estilo Vampire Survivors: persecución directa al jugador + separación
+  entre enemigos (sin predicción de movimiento ni carril lateral).
 - damage_mult: escala el daño base según el nivel del jugador (Vampire Survivors style).
 """
 import pygame
 import math
 import random
-from settings import (
+from src.settings import (
     ENEMY_SIZE, ENEMY_SPEED,
     WORLD_WIDTH, WORLD_HEIGHT,
 )
 
 SPRITE_CACHE: dict = {}
 _GLOW_CACHE: dict = {}
+_BAR_CACHE: dict = {}
+
+# Cola de barras de vida del frame (se vuelcan con flush_bars en un solo blit).
+_BAR_QUEUE: list = []
+
+_TRANSPARENT_KEY = (255, 0, 255)
+
+
+def _bar_surface(width: int, color) -> pygame.Surface:
+    key = (width, color)
+    surf = _BAR_CACHE.get(key)
+    if surf is None:
+        surf = pygame.Surface((width, 4))
+        surf.fill(color)
+        _BAR_CACHE[key] = surf
+    return surf
+
+
+def flush_bars(screen) -> None:
+    """Dibuja en un único blit todas las barras de vida acumuladas del frame.
+
+    Dos pygame.draw.rect por enemigo costaban ~4.6ms con 1500 enemigos en
+    pantalla; blitear superficies cacheadas en batch cuesta ~0.4ms.
+    """
+    if _BAR_QUEUE:
+        screen.blits(_BAR_QUEUE)
+        _BAR_QUEUE.clear()
+
 
 def _get_glow_surface(radius: int, alpha: int) -> pygame.Surface:
     rb = (radius + 4) // 5 * 5
@@ -113,7 +144,6 @@ class Enemy:
         self.bleed_drip_cooldown = 0
 
         self.charge_level = 0.0
-        self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     # ------------------------------------------------------------------
     def recycle(self, x, y, speed_multiplier=1.0, enemy_type=None,
@@ -158,7 +188,6 @@ class Enemy:
         self.bleed_drip_cooldown = 0
         self.attack_cooldown = 0
         self.charge_level = 0.0
-        self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     def teleport_to(self, x, y):
         self.x = x
@@ -166,7 +195,6 @@ class Enemy:
         self.rect.center = (int(x), int(y))
         self.vx = self.vy = 0.0
         self.knockback_x = self.knockback_y = 0.0
-        self._lane = math.sin(x * 0.0071 + y * 0.0053)
 
     def _get_cached_sprite(self, size, total_size, color):
         key = (size, total_size, color)
@@ -178,7 +206,9 @@ class Enemy:
             c_pos = offset + (size - center_size) // 2
             center_rect = (c_pos, c_pos, center_size, center_size)
 
-            surf = pygame.Surface((total_size, total_size), pygame.SRCALPHA)
+            surf = pygame.Surface((total_size, total_size))
+            surf.fill(_TRANSPARENT_KEY)
+            surf.set_colorkey(_TRANSPARENT_KEY)
             pygame.draw.rect(surf, color, draw_rect)
             pygame.draw.rect(surf, border_color, draw_rect, 2)
             pygame.draw.rect(surf, border_color, center_rect)
@@ -191,62 +221,52 @@ class Enemy:
             SPRITE_CACHE[key] = (surf, surf_flash)
         return SPRITE_CACHE[key]
 
-    def update_ai(self, player_pos, spatial_grid, player_vel=None):
+    def update_ai(self, player_pos, spatial_grid):
+        """Persecución directa estilo Vampire Survivors.
+
+        · La dirección apunta SIEMPRE al jugador (sin predicción ni zigzag):
+          predecir el movimiento del jugador hacía que los enemigos
+          sobrepasaran y orbitaran en vez de perseguir.
+        · La separación solo evita que se apilen unos sobre otros;
+          no altera la velocidad de aproximación.
+        """
         if not self.is_alive:
             return
 
         ex, ey = self.x, self.y
         px, py = player_pos
 
-        if player_vel is not None:
-            pvx, pvy = player_vel
-            raw_dist = math.sqrt((px - ex)**2 + (py - ey)**2)
-            predict_t = min(18.0, raw_dist / max(1.0, self.base_speed * 2.5))
-            target_x = px + pvx * predict_t * 0.55
-            target_y = py + pvy * predict_t * 0.55
-        else:
-            target_x, target_y = px, py
-
-        dx = target_x - ex
-        dy = target_y - ey
+        dx = px - ex
+        dy = py - ey
         dist_sq = dx * dx + dy * dy
         if dist_sq < 0.0001:
-            dist_sq = 0.0001
-        dist = math.sqrt(dist_sq)
+            self.vx = self.vy = 0.0
+            return
+
+        dist     = math.sqrt(dist_sq)
         inv_dist = 1.0 / dist
-        dir_x = dx * inv_dist
-        dir_y = dy * inv_dist
+        dir_x    = dx * inv_dist
+        dir_y    = dy * inv_dist
+        speed    = self.base_speed * self.speed_variance
 
-        real_dist_sq = (px - ex)**2 + (py - ey)**2
-        special = self.special
-
-        if special == 'spit':
+        if self.special == 'spit':
+            # Mantiene la distancia de tiro preferida.
             preferred = 270.0
-            pref_near = preferred * 0.6
-            pref_far  = preferred * 1.5
-            real_dist = math.sqrt(real_dist_sq) if real_dist_sq > 0.0001 else 0.001
-            if real_dist < pref_near:
-                dir_x = -(px - ex) / max(real_dist, 0.001)
-                dir_y = -(py - ey) / max(real_dist, 0.001)
-                current_move_speed = self.base_speed * self.speed_variance * 0.9
-            elif real_dist > pref_far:
-                current_move_speed = self.base_speed * self.speed_variance
-            else:
-                current_move_speed = 0.0
-        else:
-            attack_range_sq = (self.size * 0.6 + 10) ** 2
-            current_move_speed = (
-                self.base_speed * self.speed_variance
-                if real_dist_sq > attack_range_sq else 0.0
-            )
+            if dist < preferred * 0.6:
+                dir_x, dir_y = -dir_x, -dir_y
+            elif dist < preferred * 1.5:
+                speed = 0.0
+        elif dist_sq <= (self.size * 0.6 + 10) ** 2:
+            # Ya está en rango de golpe: se planta.
+            speed = 0.0
 
         push_x = push_y = 0.0
         if spatial_grid:
-            neighbors = spatial_grid.get_nearby(ex, ey, radius=1)
+            neighbors  = spatial_grid.get_nearby(ex, ey, radius=1)
             sep_radius = self.radius * 4.0
-            cr_sq = sep_radius * sep_radius
-            count = 0
-            max_n = 20
+            cr_sq      = sep_radius * sep_radius
+            count      = 0
+            max_n      = 20
 
             for other in neighbors:
                 if other is self or not other.is_alive:
@@ -277,18 +297,8 @@ class Enemy:
                 push_x *= inv_pm
                 push_y *= inv_pm
 
-        perp_x = -dir_y
-        perp_y = dir_x
-        lateral_strength = 0.38 * current_move_speed
-        lane_vx = perp_x * self._lane * lateral_strength
-        lane_vy = perp_y * self._lane * lateral_strength
-
-        target_vx = dir_x * current_move_speed + push_x + lane_vx
-        target_vy = dir_y * current_move_speed + push_y + lane_vy
-
-        lerp = 0.40
-        self.vx = self.vx * (1.0 - lerp) + target_vx * lerp
-        self.vy = self.vy * (1.0 - lerp) + target_vy * lerp
+        self.vx = dir_x * speed + push_x
+        self.vy = dir_y * speed + push_y
 
     def update_special(self, player_pos, dt=1.0):
         if not self.is_alive or not self.special:
@@ -343,7 +353,7 @@ class Enemy:
         self.y += (self.vy + self.knockback_y) * dt
 
         kx, ky = self.knockback_x, self.knockback_y
-        if abs(kx) > 0.01 or abs(ky) > 0.01:
+        if kx * kx + ky * ky > 0.0001:
             decay = self.knockback_decay ** dt
             kx *= decay
             ky *= decay
@@ -443,17 +453,16 @@ class Enemy:
             offset = (self.hitbox_total - self.size) // 2
             bar_x = int(sx + offset)
             bar_y = int(sy + offset - 7)
-            BAR_H = 4
 
-            pygame.draw.rect(screen, (60, 0, 0),
-                             (bar_x, bar_y, bar_width, BAR_H))
-            hp_color = (
-                (255, 0, 0) if self.health < self.max_health * 0.3
-                else (255, 100, 0)
-            )
+            _BAR_QUEUE.append((_bar_surface(bar_width, (60, 0, 0)),
+                               (bar_x, bar_y)))
             if health_width > 0:
-                pygame.draw.rect(screen, hp_color,
-                                 (bar_x, bar_y, health_width, BAR_H))
+                hp_color = (
+                    (255, 0, 0) if self.health < self.max_health * 0.3
+                    else (255, 100, 0)
+                )
+                _BAR_QUEUE.append((_bar_surface(health_width, hp_color),
+                                   (bar_x, bar_y)))
 
     @staticmethod
     def spawn_random(speed_multiplier=1.0, wave=1):

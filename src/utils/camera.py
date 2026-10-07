@@ -13,7 +13,7 @@ Correcciones vs versión anterior:
       · Antes a 120fps el temblor desaparecía en la mitad del tiempo real.
 """
 import pygame, random
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT
+from src.settings import WINDOW_WIDTH, WINDOW_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT
 
 _CW = WINDOW_WIDTH
 _CH = WINDOW_HEIGHT
@@ -90,17 +90,9 @@ class Camera:
     def apply_rect(self, rect):
         return rect.move(self.offset_x, self.offset_y)
 
-    def update(self, target, mouse_pos=None, dt: float = 1.0) -> None:
+    def update(self, target, dt: float = 1.0) -> None:
         tx = float(target.rect.centerx)
         ty = float(target.rect.centery)
-
-        # Paralaje del ratón dividido por zoom para no exagerar en mobile
-        if mouse_pos:
-            z  = max(self.zoom, 0.01)
-            mx = (mouse_pos[0] - _CW * 0.5) / z
-            my = (mouse_pos[1] - _CH * 0.5) / z
-            tx += mx * 0.4
-            ty += my * 0.4
 
         # ── Lerp frame-rate independent ─────────────────────────────────
         # Fórmula: lerp_dt = 1 - (1 - lerp_speed)^dt

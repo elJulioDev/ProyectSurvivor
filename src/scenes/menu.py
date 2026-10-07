@@ -13,8 +13,8 @@ import pygame
 import math
 import random
 import sys
-from scenes.scene import Scene
-from settings import BLACK, WHITE, WINDOW_WIDTH, WINDOW_HEIGHT
+from src.scenes.scene import Scene
+from src.settings import BLACK, WHITE, WINDOW_WIDTH, WINDOW_HEIGHT
 
 C_BG         = (6,  7,  10)
 C_BG2        = (10, 12, 18)
@@ -247,7 +247,7 @@ class MenuScene(Scene):
 
         # Clicks — NO actualizamos botones aquí (se hace en update())
         if self.btn_play.is_clicked_vpos(event, vpos):
-            from scenes.gameplay import GameplayScene
+            from src.scenes.gameplay import GameplayScene
             self.next_scene = GameplayScene(self.game)
 
         if self.btn_exit.is_clicked_vpos(event, vpos):
@@ -256,7 +256,7 @@ class MenuScene(Scene):
 
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_SPACE, pygame.K_RETURN):
-                from scenes.gameplay import GameplayScene
+                from src.scenes.gameplay import GameplayScene
                 self.next_scene = GameplayScene(self.game)
             elif event.key == pygame.K_ESCAPE:
                 pygame.quit()

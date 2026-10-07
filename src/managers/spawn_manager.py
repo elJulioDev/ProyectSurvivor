@@ -27,14 +27,17 @@ RECICLAJE ESTRICTO (Object Pooling):
 
 import random
 import math
-from entities.enemy import Enemy
-from settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
+from src.entities.enemy import Enemy
+from src.settings import WORLD_WIDTH, WORLD_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 
 SPAWN_RADIUS_MIN = 650
 SPAWN_RADIUS_MAX = 1100
 TELEPORT_DISTANCE = 1050
 
-_HARD_CAP_PC     = 2000
+# Tope de enemigos vivos. Con ~900 en pantalla el frame completo (update +
+# render + HUD + escalado a 1080p) queda en ~13-14ms; a partir de ~1200 se
+# pasa de los 16.67ms de 60fps. Súbelo si prefieres más horda y menos fps.
+_HARD_CAP_PC     = 900
 _HARD_CAP_MOBILE = 680
 _INITIAL_POOL_PC     = 150
 _INITIAL_POOL_MOBILE = 80

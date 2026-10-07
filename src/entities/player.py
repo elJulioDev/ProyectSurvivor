@@ -11,12 +11,12 @@ NUEVOS STATS:
 
 import pygame, math
 
-from settings import (
+from src.settings import (
     PLAYER_SIZE, PLAYER_SPEED, PLAYER_ACCEL, PLAYER_FRICTION,
     WHITE, WORLD_WIDTH, WORLD_HEIGHT
 )
 
-from entities.weapon import PistolWeapon, ShotgunWeapon, LaserWeapon, AssaultRifleWeapon
+from src.entities.weapon import PistolWeapon, ShotgunWeapon, LaserWeapon, AssaultRifleWeapon
 
 class Player:
     def __init__(self, x, y):
@@ -265,7 +265,7 @@ class Player:
         self.angle = math.atan2(dy, dx)
 
     def add_weapon(self, weapon_class, projectile_pool):
-        from entities.weapon import (ShotgunWeapon, LaserWeapon, AssaultRifleWeapon,
+        from src.entities.weapon import (ShotgunWeapon, LaserWeapon, AssaultRifleWeapon,
                                      SniperWeapon, NovaWeapon, OrbitalWeapon,
                                      BoomerangWeapon)
         weapon_map = {

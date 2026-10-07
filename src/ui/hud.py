@@ -7,7 +7,7 @@ En Android la creación de superficies es ~10× más lenta que en PC.
 """
 
 import pygame, math
-from settings import WINDOW_WIDTH
+from src.settings import WINDOW_WIDTH
 
 class Palette:
     BG          = (10, 10, 14)

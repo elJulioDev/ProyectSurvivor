@@ -17,9 +17,9 @@ BALANCE:
 import pygame
 import random
 import math
-from scenes.scene import Scene
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT
-from data.upgrades import UPGRADES
+from src.scenes.scene import Scene
+from src.settings import WINDOW_WIDTH, WINDOW_HEIGHT
+from src.data.upgrades import UPGRADES
 
 RARITY_COLORS = {
     'common':    (160, 165, 175),
@@ -97,7 +97,7 @@ def _check_requires(req: str, player) -> bool:
         )
 
     if req == 'orbital_unlocked':
-        from entities.weapon import OrbitalWeapon
+        from src.entities.weapon import OrbitalWeapon
         return any(isinstance(w, OrbitalWeapon)
                    for w in getattr(player, 'passive_weapons', []))
 
@@ -297,7 +297,7 @@ class UpgradeScene(Scene):
 
         elif utype == 'orbital':
             # Buscar el OrbitalWeapon en passive_weapons y aplicar la mejora
-            from entities.weapon import OrbitalWeapon
+            from src.entities.weapon import OrbitalWeapon
             orbital = next(
                 (w for w in getattr(player, 'passive_weapons', [])
                  if isinstance(w, OrbitalWeapon)),

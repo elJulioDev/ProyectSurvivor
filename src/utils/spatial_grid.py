@@ -24,11 +24,14 @@ class SpatialGrid:
         return int(x * self._inv_cell) * self._STRIDE + int(y * self._inv_cell)
 
     def insert(self, entity):
-        k = self._key(entity.x, entity.y)
-        try:
-            self.grid[k].append(entity)
-        except KeyError:
+        # Clave inline: evita la llamada a _key por entidad y frame.
+        k = (int(entity.x * self._inv_cell) * self._STRIDE
+             + int(entity.y * self._inv_cell))
+        lst = self.grid.get(k)
+        if lst is None:
             self.grid[k] = [entity]
+        else:
+            lst.append(entity)
 
     def get_nearby(self, x: float, y: float, radius: int = 1):
         cx = int(x * self._inv_cell)

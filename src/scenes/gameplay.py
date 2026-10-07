@@ -10,19 +10,19 @@ GameplayScene optimizado:
 PARCHE 2: MOBILE_CAMERA_ZOOM aplicado en on_enter() cuando se detecta móvil.
 """
 import pygame
-from scenes.scene import Scene
-from settings import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
-from data.upgrades import UPGRADES
-from managers.level_manager import LevelManager
-from ui.hud import HUD
-from ui.mobile_controls import MobileControls
+from src.scenes.scene import Scene
+from src.settings import WINDOW_WIDTH, WINDOW_HEIGHT, BLACK
+from src.data.upgrades import UPGRADES
+from src.managers.level_manager import LevelManager
+from src.ui.hud import HUD
+from src.ui.mobile_controls import MobileControls
 
 # FPS objetivo por defecto — cambiar aquí o con F6 en juego
 DEFAULT_TARGET_FPS = 60
 
 def _detect_mobile() -> bool:
     try:
-        from utils.platform_detect import is_mobile
+        from src.utils.platform_detect import is_mobile
         return is_mobile()
     except ImportError:
         import sys, os
@@ -65,7 +65,7 @@ class GameplayScene(Scene):
 
         # PARCHE 2: aplicar MOBILE_CAMERA_ZOOM cuando se ejecuta en móvil
         if self.mobile.enabled:
-            from settings import MOBILE_CAMERA_ZOOM
+            from src.settings import MOBILE_CAMERA_ZOOM
             self.level.camera.zoom = MOBILE_CAMERA_ZOOM
         else:
             self.level.camera.zoom = 1.0
@@ -82,7 +82,7 @@ class GameplayScene(Scene):
             pygame.mouse.set_visible(self.mobile.enabled)
             # Re-aplicar zoom al cambiar modo
             if self.mobile.enabled:
-                from settings import MOBILE_CAMERA_ZOOM
+                from src.settings import MOBILE_CAMERA_ZOOM
                 self.level.camera.zoom = MOBILE_CAMERA_ZOOM
             else:
                 self.level.camera.zoom = 1.0
@@ -125,7 +125,7 @@ class GameplayScene(Scene):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 pygame.mouse.set_visible(True)
-                from scenes.menu import MenuScene
+                from src.scenes.menu import MenuScene
                 self.next_scene = MenuScene(self.game)
             elif event.key in (pygame.K_RETURN, pygame.K_p):
                 self._open_pause()
@@ -261,7 +261,7 @@ class GameplayScene(Scene):
             elif sname == 'magnet_speed_mult':  player.magnet_speed_mult *= val
 
     def _open_pause(self):
-        from scenes.pause import PauseScene
+        from src.scenes.pause import PauseScene
         pygame.mouse.set_visible(True)
         self.game.current_scene = PauseScene(self.game, self)
 
@@ -272,14 +272,14 @@ class GameplayScene(Scene):
 
         if self.level.player and self.level.player.pending_level_ups > 0:
             self.level.player.pending_level_ups -= 1
-            from scenes.upgrade import UpgradeScene
+            from src.scenes.upgrade import UpgradeScene
             pygame.mouse.set_visible(True)
             self.game.current_scene = UpgradeScene(self.game, self)
             return
 
         if self.level.game_over:
             pygame.mouse.set_visible(True)
-            from scenes.game_over import GameOverScene
+            from src.scenes.game_over import GameOverScene
             self.next_scene = GameOverScene(
                 self.game,
                 self.level.score,
@@ -348,7 +348,7 @@ class GameplayScene(Scene):
 
     def _render_crosshair(self):
         mx, my = self.game.get_mouse_pos()
-        from settings import (CROSSHAIR_COLOR, CROSSHAIR_SIZE,
+        from src.settings import (CROSSHAIR_COLOR, CROSSHAIR_SIZE,
                                CROSSHAIR_GAP, CROSSHAIR_THICKNESS, CROSSHAIR_DOT_SIZE)
         g  = CROSSHAIR_GAP  * self.crosshair_scale
         sz = CROSSHAIR_SIZE * self.crosshair_scale
